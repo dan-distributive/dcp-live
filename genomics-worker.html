@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Genomics Worker</title>
+<script src="https://scheduler.distributed.computer/dcp-client/dcp-client.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap');
+
+  :root {
+    --bg-deep:   #0d0514;
+    --pink:      #cc50c9;
+    --purple:    #7b3fa0;
+    --blue:      #4a7fd4;
+    --text:      #e8d0f0;
+    --text-dim:  #8a6aa0;
+    --grid-line: rgba(204,80,201,0.07);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    background: var(--bg-deep);
+    font-family: 'Syne', sans-serif;
+    overflow: hidden;
+  }
+
+  /* Animated grid background — pink-tinted */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 40px 40px;
+    animation: gridDrift 20s linear infinite;
+    pointer-events: none;
+  }
+
+  @keyframes gridDrift {
+    from { background-position: 0 0; }
+    to   { background-position: 40px 40px; }
+  }
+
+  /* Scanline overlay */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 3px,
+      rgba(0,0,0,0.07) 3px,
+      rgba(0,0,0,0.07) 4px
+    );
+    pointer-events: none;
+  }
+
+  .center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ── Big emoji logo ── */
+  .title-logo {
+    font-size: 180px;
+    line-height: 1;
+    margin-bottom: 64px;
+    user-select: none;
+  }
+
+  .title-logo.transitions-ready {
+    transition: filter 0.3s;
+  }
+
+  .title-logo.running {
+    animation: helixPulse 3.6s ease-in-out infinite;
+  }
+
+  @keyframes helixPulse {
+    0%   { filter: drop-shadow(0 0 0px  rgba(255,255,255,0));    transform: scale(1);    }
+    50%  { filter: drop-shadow(0 0 14px rgba(255,255,255,0.42)) drop-shadow(0 0 30px rgba(255,255,255,0.15)); transform: scale(1.03); }
+    100% { filter: drop-shadow(0 0 0px  rgba(255,255,255,0));    transform: scale(1);    }
+  }
+
+  /* ── Button ── */
+  .start-btn {
+    position: relative;
+    background: transparent;
+    color: var(--pink);
+    border: 1px solid var(--pink);
+    border-radius: 2px;
+    padding: 14px 52px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.35em;
+    text-transform: uppercase;
+    cursor: pointer;
+    margin-bottom: 28px;
+    transition: color 0.2s, box-shadow 0.2s, transform 0.1s;
+    overflow: hidden;
+  }
+
+  /* fill sweep */
+  .start-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--pink);
+    transform: translateX(-101%);
+    transition: transform 0.25s ease;
+    z-index: 0;
+  }
+
+  .start-btn span {
+    position: relative;
+    z-index: 1;
+  }
+
+  .start-btn:hover {
+    color: #0d0514;
+    box-shadow: 0 0 18px rgba(204,80,201,0.35);
+  }
+  .start-btn:hover::before  { transform: translateX(0); }
+  .start-btn:active         { transform: scale(0.97); }
+  .start-btn:disabled       { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+  .start-btn:disabled::before { transform: translateX(-101%); }
+
+  /* ── Progress section ── */
+  .progress-section {
+    width: 300px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    margin-top: 0;
+    transition: max-height 0.5s ease, opacity 0.4s ease, margin-top 0.5s ease;
+  }
+
+  .progress-section.visible {
+    max-height: 200px;
+    opacity: 1;
+    margin-top: 28px;
+  }
+
+  .progress-row {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: max-height 0.4s ease, opacity 0.35s ease;
+  }
+
+  .progress-row.visible {
+    max-height: 60px;
+    opacity: 1;
+  }
+
+  .progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .progress-job-name {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+  }
+
+  .progress-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .progress-sandbox {
+    font-family: 'Space Mono', monospace;
+    font-size: 8px;
+    color: var(--text-dim);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+
+  .progress-pct {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--pink);
+    letter-spacing: 0.05em;
+    min-width: 36px;
+    text-align: right;
+  }
+
+  .progress-track {
+    height: 3px;
+    background: rgba(204,80,201,0.15);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--blue), var(--pink));
+    box-shadow: 0 0 8px rgba(204,80,201,0.5);
+    transition: width 0.6s ease;
+  }
+
+  /* ── Deposit info ── */
+  .deposit-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    margin-top: 0;
+    transition: max-height 0.5s ease, opacity 0.5s ease, margin-top 0.5s ease;
+  }
+
+  .deposit-info.visible {
+    max-height: 80px;
+    opacity: 1;
+    margin-top: 32px;
+  }
+
+  .deposit-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 8px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  .deposit-total {
+    color: var(--pink);
+    font-size: 10px;
+  }
+
+  .deposit-unit {
+    color: var(--text-dim);
+  }
+
+  .deposit-address {
+    font-family: 'Space Mono', monospace;
+    font-size: 9.5px;
+    color: var(--blue);
+    letter-spacing: 0.05em;
+  }
+
+  .deposit-address .addr-dim { color: var(--text-dim); }
+
+  .deposit-link {
+    font-family: 'Space Mono', monospace;
+    font-size: 8px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+    margin-top: 2px;
+  }
+
+  .deposit-link:hover {
+    color: var(--blue);
+    border-color: var(--blue);
+  }
+</style>
+</head>
+<body>
+  <div class="center">
+    <div class="title-logo" id="logo">🧬</div>
+    <button class="start-btn" id="btn" onclick="toggleWorker()"><span>Start</span></button>
+    <div class="progress-section" id="progressSection">
+      <!-- sandbox progress rows injected here -->
+    </div>
+    <div class="deposit-info" id="depositInfo">
+      <span class="deposit-label"><span class="deposit-total" id="depositTotal">0.000</span> <span class="deposit-unit">⊇ deposited to</span></span>
+      <span class="deposit-address" id="depositAddress">0xa8450ec85759273f509f10cf146259a83ca2368e</span>
+      <a class="deposit-link" href="https://dcp.cloud" target="_blank" rel="noopener">
+        Create your own account at dcp.cloud ↗
+      </a>
+    </div>
+  </div>
+
+  <script>
+    let worker = null;
+    let totalCredits = 0;
+
+    function updateCreditDisplay() {
+      const el = document.getElementById('depositTotal');
+      if (el) el.textContent = totalCredits.toFixed(3);
+    }
+
+    /* GET PARAMETERS */
+    function getWorkerParams() {
+      const p = new URLSearchParams(window.location.search);
+
+      const registrationKey = p.get('registrationKey')
+        ?? '0x5d1d0796541b82929510c7393e39af99cf6fc62501ea3434fbdbd0bb30b2ebd7'; // default reg key associated with demo@dcp.cloud
+      // ?registrationKey=0xABC...
+
+      const paymentAddress = p.get('paymentAddress')
+        ?? '0xa8450ec85759273f509f10cf146259a83ca2368e';
+      // ?paymentAddress=0xBEEF...
+
+      const maxSandboxes = p.has('maxSandboxes')
+        ? parseInt(p.get('maxSandboxes'), 10)
+        : 2;
+      // ?maxSandboxes=4
+
+      const cpuUtilization = p.has('cpuUtilization')
+        ? parseFloat(p.get('cpuUtilization'))
+        : 1;
+      // ?cpuUtilization=0.5
+
+      const gpuUtilization = p.has('gpuUtilization')
+        ? parseFloat(p.get('gpuUtilization'))
+        : 1;
+      // ?gpuUtilization=0
+
+      const cores = {};
+      if (p.has('cpuCores')) cores.cpu = parseInt(p.get('cpuCores'), 10);
+      // ?cpuCores=4
+      if (p.has('gpuCores')) cores.gpu = parseInt(p.get('gpuCores'), 10);
+      // ?gpuCores=1
+
+      const minimumWage = {
+        CPU: p.has('minCPU') ? parseFloat(p.get('minCPU')) : 0,
+        // ?minCPU=0.001
+        GPU: p.has('minGPU') ? parseFloat(p.get('minGPU')) : 0,
+        // ?minGPU=0.001
+        in:  p.has('minIn')  ? parseFloat(p.get('minIn'))  : 0,
+        // ?minIn=0.001
+        out: p.has('minOut') ? parseFloat(p.get('minOut')) : 0,
+        // ?minOut=0.001
+      };
+
+      let allowOrigins = { any: [null] };
+      if (p.has('allowOrigins')) {
+        const raw = p.get('allowOrigins');
+        allowOrigins = (raw === 'any')
+          ? { any: [null] }
+          : { any: raw.split(',').map(s => s.trim()) };
+      }
+      // ?allowOrigins=any
+      // ?allowOrigins=https://jobs.example.com,https://other.com
+
+      let computeGroups = [{ joinKey: 'kathmandu', joinSecret: '70aad79df9209af529' }];
+      if (p.has('computeGroups')) {
+        const raw = p.get('computeGroups');
+        if (raw.startsWith('[')) {
+          try { computeGroups = JSON.parse(raw); } catch {}
+        } else if (raw.includes(',')) {
+          const [joinKey, joinSecret] = raw.split(',');
+          computeGroups = [{ joinKey, joinSecret }];
+        }
+      }
+      // ?computeGroups=mykey,mysecret
+      // ?computeGroups=[{"joinKey":"a","joinSecret":"x"},{"joinKey":"b","joinSecret":"y"}]
+
+      const leavePublicGroup = p.has('leavePublicGroup')
+        ? p.get('leavePublicGroup') !== 'false'
+        : true;
+      // ?leavePublicGroup=false
+
+      return { registrationKey, paymentAddress, maxSandboxes, cpuUtilization, gpuUtilization,
+        cores, minimumWage, allowOrigins, computeGroups, leavePublicGroup };
+    }
+
+    const wp = getWorkerParams();
+    document.getElementById('depositAddress').textContent = wp.paymentAddress;
+
+
+    // REGISTER WORKER
+    (async function initWorkerRegistration() {
+      if (localStorage.getItem('workerRegistered')) return;
+
+      if (!dcp.identity.check()) {
+        await dcp.identity.set('0x54e1cd0f8ee633e9f0807cf644342fb8175da6037d204fe655b215caafba7b8e');
+      }
+      
+      const ua = navigator.userAgent;
+
+      const os = /iPhone|iPad/.test(ua) && /Mobile/.test(ua) ? 'iOS' :  // require Mobile to distinguish iPad/iPhone from Mac
+                /Android/.test(ua)                           ? 'Android' :
+                /Win/.test(ua)                               ? 'Windows' :
+                /Macintosh|Mac OS X/.test(ua)                ? 'Mac' : 'Linux';
+
+      const browser = /Edg\//.test(ua)      ? 'Edge' :    // Edg/ to avoid matching "Edge" in older strings
+                      /OPR|Opera/.test(ua)  ? 'Opera' :
+                      /Chrome\//.test(ua)   ? 'Chrome' :  // Chrome/ before Safari, since Chrome UA includes "Safari"
+                      /Firefox/.test(ua)    ? 'Firefox' : 'Safari';
+
+      const isMobile = /iPhone|iPad|Android/.test(ua) && /Mobile/.test(ua);
+      const label = `${os} | ${browser}${isMobile ? ' | mobile' : ''}`;
+
+      const rkey = wp.registrationKey;
+      if (!dcp.wallet.isPrivateKey(rkey)) return console.error('Invalid registration key');
+
+      const reg = await new dcp.worker.DistributiveWorker({}).register(rkey, label);
+
+      if (reg.status === 'registered') {
+        sessionStorage.setItem('registering', 'true');
+        localStorage.setItem('workerRegistered', 'true');
+        window.location.reload();
+      } else {
+        console.error(`Registration failure: ${reg.status}`);
+      }
+    })();
+
+    async function toggleWorker() {
+      const btn             = document.getElementById('btn');
+      const logo            = document.getElementById('logo');
+      const progressSection = document.getElementById('progressSection');
+      const depositInfo     = document.getElementById('depositInfo');
+
+      // ── Progress bar helpers ──
+      // Track job name per sandbox
+      const sandboxJobName = {};
+
+      function getOrCreateBar(id, jobName) {
+        let row = document.getElementById(`bar-${id}`);
+        if (!row) {
+          row = document.createElement('div');
+          row.className = 'progress-row';
+          row.id = `bar-${id}`;
+          row.innerHTML = `
+            <div class="progress-header">
+              <span class="progress-job-name" id="jobname-${id}">${jobName || '—'}</span>
+              <div class="progress-meta">
+                <span class="progress-sandbox">SBX ${id}</span>
+                <span class="progress-pct" id="pct-${id}">0.0%</span>
+              </div>
+            </div>
+            <div class="progress-track">
+              <div class="progress-fill" id="fill-${id}"></div>
+            </div>`;
+          progressSection.appendChild(row);
+          progressSection.classList.add('visible');
+          // Animate row in after a microtask so transition fires
+          requestAnimationFrame(() => requestAnimationFrame(() => row.classList.add('visible')));
+        }
+        if (jobName) {
+          const nameEl = document.getElementById(`jobname-${id}`);
+          if (nameEl) nameEl.textContent = jobName;
+        }
+      }
+
+      function updateBar(id, pct) {
+        const fill  = document.getElementById(`fill-${id}`);
+        const label = document.getElementById(`pct-${id}`);
+        if (fill)  fill.style.width  = `${pct}%`;
+        if (label) label.textContent = `${pct.toFixed(1)}%`;
+      }
+
+      function clearBars() {
+        progressSection.classList.remove('visible');
+        // Wait for section to collapse before clearing contents
+        setTimeout(() => { progressSection.innerHTML = ''; }, 500);
+      }
+
+      const setRunning = (on) => {
+        logo.classList.toggle('running', on);
+        depositInfo.classList.toggle('visible', on);
+      };
+
+      const setFullyStopped = () => {
+        setRunning(false);
+        clearBars();
+      };
+
+      if (!worker) {
+        // IDENTIFY WORKER
+        if (!dcp.identity.check()) {
+          await dcp.identity.set('0x54e1cd0f8ee633e9f0807cf644342fb8175da6037d204fe655b215caafba7b8e');
+        }
+
+        // CONFIGURE WORKER
+        const workerConfig = {
+          paymentAddress:   new dcp.wallet.Address(wp.paymentAddress),
+          ...(Object.keys(wp.cores).length && { cores: wp.cores }),
+          utilization:      { cpu: wp.cpuUtilization, gpu: wp.gpuUtilization },
+          maxSandboxes:     wp.maxSandboxes,
+          minimumWage:      wp.minimumWage,
+          allowOrigins:     wp.allowOrigins,
+          computeGroups:    wp.computeGroups,
+          leavePublicGroup: wp.leavePublicGroup,
+        };
+
+        // INSTANTIATE WORKER
+        worker = new dcp.worker.DistributiveWorker(workerConfig);
+
+        // Worker events
+        worker.on("connect",    () => { setRunning(true);      });
+        worker.on("disconnect", () => { setRunning(false);     });
+        worker.on("stop",       () => { setRunning(false);     });
+        worker.on("end",        () => { setFullyStopped();     });
+
+        //
+        // WORKER EVENTS
+        //
+
+        worker.on("fetch", ev => {
+          const jobIds = Object.keys(ev.jobs);
+          if (jobIds.length === 0) {
+            console.log("[worker.fetch] No work; retrying in 7 seconds...");
+            return;
+          }
+          const sizeKB = (ev.fetchSize / 1024).toFixed(2);
+          console.log(`[worker.fetch] fetchSize: ${sizeKB} KB`);
+          for (const jobId of jobIds) {
+            const job = ev.jobs[jobId];
+            const sliceCount = ev.slices[jobId] || 0;
+            console.log(
+              `  jobId: ${jobId},`,
+              `name: ${job.name},`,
+              `description: ${job.description},`,
+              `link: ${job.link},`,
+              `slicesFetched: ${sliceCount}`
+            );
+          }
+        });
+
+        worker.on("result", (urlOrError, size) => {
+          if (urlOrError instanceof Error) {
+            console.log(`[worker.result] error ${urlOrError.message}`);
+          } else {
+            console.log(`[worker.result] sent ${(size / 1024).toFixed(2)} KB to ${urlOrError || "scheduler"}`);
+          }
+        });
+
+        worker.on("payment", (payment, paymentAccount, jobAddress, slice) => {
+          console.log(
+            `[worker.payment]`,
+            `payment: ${payment}⊇,`,
+            `depositAccount: ${paymentAccount},`,
+            `jobId: ${jobAddress},`,
+            `slice: ${slice}`
+          );
+        });
+
+        worker.on("connect", url => {
+          console.log(`[worker.connect] connected to ${url}`);
+          setRunning(true);
+        });
+
+        worker.on("disconnect", url => {
+          console.log(`[worker.disconnect] disconnected from ${url}`);
+          setRunning(false);
+        });
+
+        worker.on("stop", abort => {
+          console.log("[worker.stop] worker stopping...");
+          setRunning(false);
+        });
+
+        worker.on("end", () => {
+          console.log("[worker.end] worker fully stopped");
+          setFullyStopped();
+        });
+
+        worker.on("error", err => {
+          console.error(`[worker.error]`, err);
+        });
+
+        worker.on("warning", warn => {
+          console.warn(`[worker.warning]`, warn);
+        });
+
+        worker.on("sandbox", sandbox => {
+          console.log(`[worker.sandbox_${sandbox.id}] new sandbox created: ${sandbox.id}`);
+        });
+
+        //
+        // SANDBOX EVENTS
+        //
+
+        worker.on("sandbox", sandbox => {
+
+          sandbox.on("ready", () => {
+            console.log(`[sandbox_${sandbox.id}.ready] sandbox is ready`);
+            getOrCreateBar(sandbox.id, sandboxJobName[sandbox.id]);
+          });
+
+          sandbox.on("job", jobInfo => {
+            console.log(
+              `[sandbox_${sandbox.id}.job]`,
+              `jobId: ${jobInfo.id},`,
+              `name: ${jobInfo.name}`
+            );
+            // Store job name and update bar label immediately
+            sandboxJobName[sandbox.id] = jobInfo.name || jobInfo.id;
+            getOrCreateBar(sandbox.id, sandboxJobName[sandbox.id]);
+          });
+
+          sandbox.on("slice", sliceNumber => {
+            console.log(`[sandbox_${sandbox.id}.slice] slice started: ${sliceNumber}`);
+            getOrCreateBar(sandbox.id, sandboxJobName[sandbox.id]);
+            updateBar(sandbox.id, 0);
+          });
+
+          sandbox.on("progress", value => {
+            const pct = typeof value === "number" ? value : 0;
+            console.log(`[sandbox_${sandbox.id}.progress] ${pct.toFixed(1)}%`);
+            getOrCreateBar(sandbox.id, sandboxJobName[sandbox.id]);
+            updateBar(sandbox.id, pct);
+          });
+
+          sandbox.on("metrics", (slice, m) => {
+            console.log(
+              `[sandbox_${sandbox.id}.metrics]`,
+              `slice: ${slice},`,
+              `elapsed: ${m.elapsed.toFixed(3)} sec,`,
+              `CPU: ${m.CPU.toFixed(3)} sec,`,
+              `GPU: ${m.GPU.toFixed(3)} sec,`,
+              `in: ${(m.in / 1024).toFixed(3)} KB,`,
+              `out: ${(m.out / 1024).toFixed(3)} KB`
+            );
+          });
+
+          sandbox.on("sliceEnd", sliceNumber => {
+            console.log(`[sandbox_${sandbox.id}.sliceEnd] slice finished: ${sliceNumber}`);
+            updateBar(sandbox.id, 100);
+          });
+
+          sandbox.on("payment", payment => {
+            console.log(`[sandbox_${sandbox.id}.payment] ${payment} ⊇`);
+            totalCredits += Number(payment) || 0;
+            updateCreditDisplay();
+          });
+
+          sandbox.on("end", () => {
+            console.log(`[sandbox_${sandbox.id}.end] sandbox fully stopped`);
+            delete sandboxJobName[sandbox.id];
+            const row = document.getElementById(`bar-${sandbox.id}`);
+            if (row) {
+              row.classList.remove('visible');
+              setTimeout(() => {
+                row.remove();
+                if (!progressSection.querySelectorAll('.progress-row').length) {
+                  progressSection.classList.remove('visible');
+                }
+              }, 400);
+            }
+          });
+
+        });
+
+        // UPDATE BUTTON & START
+        btn.querySelector('span').textContent = 'Stop';
+        setRunning(true);
+        await worker.start();
+
+      } else {
+        // STOP WORKER
+        btn.disabled = true;
+        btn.querySelector('span').textContent = 'Stopping...';
+        await worker.stop();
+        worker = null;
+        setRunning(false);
+        btn.querySelector('span').textContent = 'Start';
+        btn.disabled = false;
+      }
+    }
+
+    window.addEventListener('load', () => {
+      document.getElementById('logo').classList.add('transitions-ready');
+    });
+
+    window.addEventListener('pagehide', () => {
+      if (sessionStorage.getItem('registering')) {
+        sessionStorage.removeItem('registering');
+        return;
+      }
+      localStorage.removeItem('workerRegistered');
+      dcp.worker.DistributiveWorker.resetLocalStorage();
+    });
+  </script>
+</body>
+</html>

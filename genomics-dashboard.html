@@ -1,0 +1,1388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Genomics Compute — DCP</title>
+<script src="https://scheduler.distributed.computer/dcp-client/dcp-client.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --bg-deep:   #0d0514;
+    --bg-panel:  #120a1a;
+    --pink:      #cc50c9;
+    --blue:      #4a7fd4;
+    --text:      #e8d0f0;
+    --text-dim:  #8a6aa0;
+    --border:    rgba(204,80,201,0.12);
+    --border-md: rgba(204,80,201,0.2);
+    --green:     #3ecf8e;
+    --red:       #e05555;
+    --grid-line: rgba(204,80,201,0.05);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    background: var(--bg-deep);
+    font-family: 'Syne', sans-serif;
+    color: var(--text);
+    overflow: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 40px 40px;
+    animation: gridDrift 20s linear infinite;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  @keyframes gridDrift {
+    from { background-position: 0 0; }
+    to   { background-position: 40px 40px; }
+  }
+
+  /* ── Desktop layout ── */
+  .app {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto 1fr;
+    height: 100vh;
+    position: relative;
+    z-index: 1;
+  }
+
+  .header {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 24px;
+    border-bottom: 0.5px solid var(--border-md);
+    background: rgba(13,5,20,0.8);
+    backdrop-filter: blur(8px);
+  }
+
+  .header-logo { font-size: 28px; line-height: 1; user-select: none; }
+
+  .header-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: 0.04em;
+  }
+
+  .header-sub {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+
+  .header-divider {
+    width: 0.5px;
+    height: 28px;
+    background: var(--border-md);
+    margin: 0 8px;
+  }
+
+  .panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  .panel-left { border-right: 0.5px solid var(--border-md); }
+
+  .panel-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-bottom: 0.5px solid var(--border);
+    background: var(--bg-panel);
+    flex-shrink: 0;
+  }
+
+  .toolbar-worker-count {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+  }
+  .toolbar-worker-count .count-active { font-size: 9px; color: var(--pink); letter-spacing: 0.05em; }
+  .toolbar-worker-count .count-sep    { color: var(--text-dim); font-size: 8px; }
+  .toolbar-worker-count .count-total  { font-size: 8px; color: rgba(204,80,201,0.45); letter-spacing: 0.05em; }
+
+  .toolbar-icon-btn {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    border-radius: 2px;
+    transition: color 0.15s, background 0.15s;
+  }
+  .toolbar-icon-btn:hover    { color: var(--pink); background: rgba(204,80,201,0.08); }
+  .toolbar-icon-btn:disabled { opacity: 0.3; cursor: default; }
+
+  .toolbar-sep { width: 0.5px; height: 16px; background: var(--border-md); }
+
+  .pg-info {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  .table-scroll {
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+  }
+  .table-scroll::-webkit-scrollbar       { width: 4px; }
+  .table-scroll::-webkit-scrollbar-track { background: transparent; }
+  .table-scroll::-webkit-scrollbar-thumb { background: var(--border-md); border-radius: 2px; }
+
+  table { width: 100%; border-collapse: collapse; }
+
+  thead {
+    position: sticky;
+    top: 0;
+    background: var(--bg-panel);
+    z-index: 2;
+  }
+
+  th {
+    font-family: 'Space Mono', monospace;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 0.5px solid var(--border-md);
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+  }
+  th:hover { color: var(--pink); }
+
+  td {
+    padding: 8px 10px;
+    border-bottom: 0.5px solid var(--border);
+    vertical-align: middle;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  th:nth-child(1), td:nth-child(1) { width: 32px; padding-left: 14px; padding-right: 0; }
+  th:nth-child(2), td:nth-child(2) { width: 20px; padding-left: 0; padding-right: 0; text-align: center; }
+  th:nth-child(3), td:nth-child(3) { width: 24px; padding-left: 0; padding-right: 4px; text-align: center; }
+  th:nth-child(4), td:nth-child(4) { padding-left: 4px; }
+
+  tbody tr               { cursor: pointer; transition: background 0.1s; }
+  tbody tr:hover td      { background: rgba(204,80,201,0.05); }
+  tbody tr.selected td   { background: rgba(204,80,201,0.1); }
+  tbody tr:last-child td { border-bottom: none; }
+
+  .mono { font-family: 'Space Mono', monospace; font-size: 10px; }
+
+  .empty-row td {
+    text-align: center;
+    padding: 2rem;
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    font-style: italic;
+    color: var(--text-dim);
+  }
+
+  .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+  .dot-green { background: var(--green); box-shadow: 0 0 4px var(--green); }
+  .dot-red   { background: rgba(224,85,85,0.5); }
+
+  .worker-icon {
+    width: 12px; height: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+    vertical-align: middle;
+  }
+  .worker-icon svg { width: 100%; height: 100%; }
+
+  .label-text  { color: var(--text-dim); font-size: 12px; }
+  .earnings-val { font-family: 'Space Mono', monospace; font-size: 10px; color: var(--blue); }
+
+  .worker-map {
+    flex-shrink: 0;
+    height: 50%;
+    border-top: 0.5px solid var(--border-md);
+    position: relative;
+    overflow: visible;   /* ← allows button to peek above */
+    transition: height 0.35s cubic-bezier(0.4,0,0.2,1);
+  }
+
+  .worker-map.collapsed {
+    height: 0;
+  }
+
+  .map-toggle-btn {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translate(-50%, -100%);  /* ← sits above the border */
+    z-index: 1000;
+    background: var(--bg-panel);
+    border: 0.5px solid var(--border-md);
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;   /* ← rounded on top now */
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    cursor: pointer;
+    transition: background 0.15s;
+    user-select: none;
+  }
+  .map-toggle-btn:active { background: rgba(204,80,201,0.12); }
+
+  .map-toggle-chevron {
+    font-size: 12px;
+    color: var(--pink);
+    line-height: 1;
+  }
+
+  .map-toggle-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 7px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  /* Detail drawer */
+  .detail-row-inline-cell {
+    padding: 0 !important;
+    background: rgba(204,80,201,0.04);
+    border-bottom: 0.5px solid var(--border-md);
+    overflow: hidden;
+    max-height: 0;
+    transition: max-height 0.3s ease;
+  }
+  .detail-row-inline.open .detail-row-inline-cell {
+    max-height: 300px;
+  }
+  .detail-row-inline:not(.open) .detail-row-inline-cell {
+    border-bottom: none;
+    display: none;
+  }
+  .detail-inner {
+    padding: 12px 16px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+
+  .detail-group h4 {
+    font-family: 'Space Mono', monospace;
+    font-size: 8px; font-weight: 700;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--text-dim); margin-bottom: 6px;
+  }
+
+  .detail-row {
+    display: flex; justify-content: space-between;
+    padding: 2px 0; border-bottom: 0.5px solid var(--border); gap: 8px;
+  }
+  .detail-row:last-child { border-bottom: none; }
+  .detail-key { font-family: 'Space Mono', monospace; font-size: 9px; color: var(--text-dim); white-space: nowrap; }
+  .detail-val { font-family: 'Space Mono', monospace; font-size: 9px; color: var(--text); text-align: right; word-break: break-all; }
+
+  /* Job panel */
+  .panel-right { display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+
+  .job-toolbar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 16px;
+    border-bottom: 0.5px solid var(--border);
+    background: var(--bg-panel);
+    flex-shrink: 0;
+  }
+
+  .job-toolbar-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px; letter-spacing: 0.3em; text-transform: uppercase;
+    color: var(--text-dim); flex: 1;
+  }
+
+  .deploy-btn {
+    position: relative; background: transparent;
+    color: var(--pink); border: 1px solid var(--pink); border-radius: 2px;
+    padding: 6px 22px;
+    font-family: 'Space Mono', monospace; font-size: 10px; font-weight: 700;
+    letter-spacing: 0.25em; text-transform: uppercase;
+    cursor: pointer; overflow: hidden;
+    transition: color 0.2s, box-shadow 0.2s, transform 0.1s;
+  }
+  .deploy-btn::before {
+    content: ''; position: absolute; inset: 0;
+    background: var(--pink); transform: translateX(-101%);
+    transition: transform 0.25s ease; z-index: 0;
+  }
+  .deploy-btn span { position: relative; z-index: 1; }
+  .deploy-btn:hover         { color: var(--bg-deep); box-shadow: 0 0 14px rgba(204,80,201,0.3); }
+  .deploy-btn:hover::before { transform: translateX(0); }
+  .deploy-btn:active        { transform: scale(0.97); }
+  .deploy-btn:disabled      { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+  .deploy-btn:disabled::before { transform: translateX(-101%); }
+
+  .map-tooltip {
+    background: var(--bg-panel);
+    border: 0.5px solid var(--border-md);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    padding: 4px 8px;
+    border-radius: 2px;
+    box-shadow: none;
+  }
+  .leaflet-tooltip.map-tooltip::before { display: none; }
+
+  .job-meta {
+    flex-shrink: 0; padding: 14px 18px 12px;
+    border-bottom: 0.5px solid var(--border);
+    background: var(--bg-panel);
+  }
+
+  .job-name  { font-size: 13px; font-weight: 700; color: var(--text); letter-spacing: 0.02em; margin-bottom: 3px; }
+  .job-desc  { font-family: 'Space Mono', monospace; font-size: 9px; color: var(--text-dim); letter-spacing: 0.04em; line-height: 1.6; }
+  .job-toolbar-sublabel {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .slices-input {
+    width: 52px;
+    background: transparent;
+    border: 0.5px solid var(--border-md);
+    border-radius: 2px;
+    color: var(--pink);
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    padding: 4px 6px;
+    text-align: center;
+    outline: none;
+    flex-shrink: 0;
+  }
+
+  .slices-input:focus {
+    border-color: var(--pink);
+  }
+  .job-status-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+
+  .job-status-pill {
+    font-family: 'Space Mono', monospace; font-size: 8px;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    border: 0.5px solid var(--border-md); border-radius: 2px; padding: 2px 8px;
+  }
+  .job-status-pill.idle    { color: var(--text-dim); border-color: var(--border-md); }
+  .job-status-pill.running { color: var(--pink);     border-color: var(--pink); }
+  .job-status-pill.done    { color: var(--green);    border-color: var(--green); }
+  .job-status-pill.error   { color: var(--red);      border-color: var(--red); }
+
+  .job-id-display { font-family: 'Space Mono', monospace; font-size: 8px; color: var(--text-dim); letter-spacing: 0.05em; }
+
+  .job-progress-wrap {
+    margin-top: 10px; height: 2px;
+    background: rgba(204,80,201,0.1); border-radius: 999px; overflow: hidden;
+  }
+  .job-progress-fill {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, var(--blue), var(--pink));
+    border-radius: 999px; transition: width 0.4s ease;
+  }
+
+  .job-console-wrap { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+
+  .job-console {
+    flex: 1; min-height: 0; width: 100%;
+    background: var(--bg-deep); color: var(--text-dim);
+    font-family: 'Space Mono', monospace; font-size: 10px;
+    line-height: 1.7; padding: 12px 16px;
+    border: none; outline: none; resize: none; overflow-y: auto;
+    letter-spacing: 0.03em;
+  }
+  .job-console::-webkit-scrollbar       { width: 4px; }
+  .job-console::-webkit-scrollbar-track { background: transparent; }
+  .job-console::-webkit-scrollbar-thumb { background: var(--border-md); border-radius: 2px; }
+
+  .notice {
+    font-family: 'Space Mono', monospace; font-size: 9px;
+    padding: 6px 16px; letter-spacing: 0.1em;
+    color: var(--red); background: rgba(224,85,85,0.08);
+    border-bottom: 0.5px solid rgba(224,85,85,0.2);
+  }
+
+  input[type=checkbox] {
+    appearance: none; width: 11px; height: 11px;
+    border: 0.5px solid var(--text-dim); border-radius: 0;
+    background: transparent; cursor: pointer;
+    position: relative; display: inline-block; vertical-align: middle;
+  }
+  input[type=checkbox]:checked::after {
+    content: ''; position: absolute;
+    left: 2px; top: -1px; width: 5px; height: 8px;
+    border: 1.5px solid var(--pink); border-top: none; border-left: none;
+    transform: rotate(45deg);
+  }
+
+  /* ══════════════════════════════════════════
+     MOBILE — slide tabs
+  ══════════════════════════════════════════ */
+  @media (max-width: 700px) {
+    body { overflow: hidden; }
+
+    .app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    /* panels sit side-by-side in a sliding viewport */
+    .panels-viewport {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+      min-height: 0;
+    }
+
+    .panels-track {
+      display: flex;
+      width: 200%;
+      height: 100%;
+      transition: transform 0.35s cubic-bezier(0.4,0,0.2,1);
+    }
+
+    .panels-track.show-job {
+      transform: translateX(-50%);
+    }
+
+    .panel-left,
+    .panel-right {
+      width: 50%;
+      flex-shrink: 0;
+      border-right: none;
+    }
+
+    /* slide tabs */
+    .slide-tab {
+      z-index: 1000;
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background: var(--bg-panel);
+      border: 0.5px solid var(--border-md);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      padding: 14px 7px;
+      cursor: pointer;
+      transition: background 0.15s;
+      user-select: none;
+    }
+    .slide-tab:active { background: rgba(204,80,201,0.12); }
+
+    .slide-tab-left  { left: 0;  border-left: none;  border-radius: 0 6px 6px 0; }
+    .slide-tab-right { right: 0; border-right: none; border-radius: 6px 0 0 6px; }
+
+    .slide-tab-label {
+      font-family: 'Space Mono', monospace;
+      font-size: 7px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      writing-mode: vertical-lr;
+    }
+
+    .slide-tab-left  .slide-tab-label { transform: rotate(180deg); }
+
+    .slide-tab-chevron {
+      font-size: 16px;
+      color: var(--pink);
+      line-height: 1;
+    }
+
+    /* workers is default view: show right tab pointing to Job */
+    #tab-to-job     { display: flex; }
+    #tab-to-workers { display: none; }
+
+
+    /* detail drawer collapses to 2-col on mobile */
+    .detail-inner { grid-template-columns: repeat(2, 1fr); }
+
+    /* header smaller on mobile */
+    .header { padding: 10px 16px; }
+    .header-logo { font-size: 22px; }
+    .header-title { font-size: 13px; }
+  }
+
+  /* hide slide tabs on desktop */
+  @media (min-width: 701px) {
+    .slide-tab       { display: none !important; }
+    .panels-viewport { display: contents; }
+    .panels-track    { display: contents; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <header class="header">
+    <div class="header-logo">🧬</div>
+    <div>
+      <div class="header-title">Genomics Compute</div>
+      <div class="header-sub">Distributive Compute Platform</div>
+    </div>
+    <div class="header-divider"></div>
+  </header>
+
+  <div class="panels-viewport">
+    <div class="panels-track" id="panels-track">
+
+      <!-- ── Left panel: Workers ── -->
+      <section class="panel panel-left">
+        <div id="panel-notice"></div>
+        <div class="panel-toolbar">
+          <div class="toolbar-worker-count">
+            <span>Workers</span>
+            <span class="count-active" id="hdr-active">—</span>
+            <span class="count-sep">/</span>
+            <span class="count-total" id="hdr-total">—</span>
+          </div>
+          <div class="header-divider"></div>
+        <div class="toolbar-worker-count">
+          <span>CPUs</span>
+          <span class="count-active" id="hdr-cpus-active">—</span>
+          <span class="count-sep">/</span>
+          <span class="count-total" id="hdr-cpus-total">—</span>
+        </div>
+        <div class="header-divider"></div>
+        <div class="toolbar-worker-count">
+          <span>GPUs</span>
+          <span class="count-active" id="hdr-gpus-active">—</span>
+          <span class="count-sep">/</span>
+          <span class="count-total" id="hdr-gpus-total">—</span>
+        </div>
+          <div style="flex:1"></div>
+          <button class="toolbar-icon-btn" id="btn-delete" title="Delete selected" onclick="deleteSelected()" disabled>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+          </button>
+          <button class="toolbar-icon-btn" title="Refresh" onclick="loadWorkers(true)">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          </button>
+          <div class="toolbar-sep"></div>
+          <span class="pg-info" id="pg-info"></span>
+          <button class="toolbar-icon-btn" id="pg-prev" onclick="changePage(-1)" disabled>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <button class="toolbar-icon-btn" id="pg-next" onclick="changePage(1)">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th><input type="checkbox" id="select-all" onchange="toggleSelectAll(this.checked)"></th>
+                <th></th>
+                <th></th>
+                <th onclick="sortBy('label')">Label</th>
+                <th onclick="sortBy('workerOpaqueId')">Worker ID</th>
+                <th onclick="sortBy('taskTime')">Last Active</th>
+                <th onclick="sortBy('earnings')">Earnings</th>
+              </tr>
+            </thead>
+            <tbody id="workers-tbody">
+              <tr class="empty-row"><td colspan="7">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="worker-map">
+          <button class="map-toggle-btn" id="map-toggle" onclick="toggleMap()">
+            <span class="map-toggle-chevron" id="map-toggle-chevron">∨</span>
+            <span class="map-toggle-label">Map</span>
+          </button>
+          <div id="worker-map-el"></div>
+        </div>
+      </section>
+
+      <!-- ── Right panel: Job ── -->
+      <section class="panel panel-right">
+        <div class="job-toolbar">
+          <span class="job-toolbar-label">Job</span>
+          <span class="job-toolbar-sublabel">Slices</span>
+          <input type="number" id="slices-input" class="slices-input" value="20" min="1" max="10000">
+          <button class="deploy-btn" id="deploy-btn" onclick="deployJob()"><span>Deploy</span></button>
+        </div>
+        <div class="job-meta">
+          <div class="job-name">Genomic Sequence Analyser</div>
+          <div class="job-desc">Affine-gap SW alignment, sliding Shannon entropy, Viterbi HMM,<br>ORF detection (6 frames), restriction mapping — 512 × 7000bp sequences</div>
+          <div class="job-status-row">
+            <span class="job-status-pill idle" id="job-status">Idle</span>
+            <span class="job-id-display" id="job-id-display"></span>
+          </div>
+          <div class="job-progress-wrap">
+            <div class="job-progress-fill" id="job-progress-fill"></div>
+          </div>
+        </div>
+        <div class="job-console-wrap">
+          <textarea class="job-console" id="jobConsole" readonly placeholder="Console output will appear here…"></textarea>
+        </div>
+      </section>
+
+    </div><!-- /panels-track -->
+
+    <!-- Mobile slide tabs — inside viewport so they overlay the panels -->
+    <div class="slide-tab slide-tab-right" id="tab-to-job" onclick="slideTo('job')">
+      <span class="slide-tab-chevron">›</span>
+      <span class="slide-tab-label">Job</span>
+    </div>
+
+    <div class="slide-tab slide-tab-left" id="tab-to-workers" onclick="slideTo('workers')" style="display:none">
+      <span class="slide-tab-label">Workers</span>
+      <span class="slide-tab-chevron">‹</span>
+    </div>
+
+  </div><!-- /panels-viewport -->
+
+</div><!-- /app -->
+
+<script>
+  /* ── Mobile slide ── */
+  function slideTo(panel) {
+    const track        = document.getElementById('panels-track');
+    const tabToJob     = document.getElementById('tab-to-job');
+    const tabToWorkers = document.getElementById('tab-to-workers');
+    if (panel === 'job') {
+      track.classList.add('show-job');
+      tabToJob.style.display     = 'none';
+      tabToWorkers.style.display = 'flex';
+    } else {
+      track.classList.remove('show-job');
+      tabToJob.style.display     = 'flex';
+      tabToWorkers.style.display = 'none';
+    }
+  }
+
+  /* ── Workers ── */
+  const PAGE_SIZE = 50;
+  let allWorkers  = [];
+  let filtered    = [];
+  let currentPage = 0;
+  let selectedIds = new Set();
+  let selectedId  = null;
+  let sortField   = 'taskTime';
+  let sortDir     = -1;
+  let db          = null;
+
+  async function getDb() {
+    if (db) return db;
+    const keystore = await new dcp.wallet.Keystore(
+      '0x87ba424720c4a221f0f9c541928f366b2d1b6c78bff4107288c1e9985dd88a91', ''
+    );
+    db = await dcp.jnu.connect('scheduler', keystore);
+    return db;
+  }
+
+  function timeAgo(d) {
+    if (!d) return 'never';
+    d = new Date(d);
+    if (isNaN(d)) return '—';
+    const s = Math.round((Date.now() - d) / 1000);
+    if (s < 60)    return `${s}s ago`;
+    if (s < 3600)  return `${Math.round(s/60)}m ago`;
+    if (s < 86400) return `${Math.round(s/3600)}h ago`;
+    return `${Math.round(s/86400)}d ago`;
+  }
+
+  function fmtDcc(raw) {
+    if (raw == null) return '—';
+    const n = Number(raw);
+    if (isNaN(n)) return '—';
+    return n.toFixed(3) + ' ⊇';
+  }
+
+  function trunc(str, len = 12) {
+    if (!str) return '—';
+    str = String(str);
+    return str.length > len ? str.slice(0, 6) + '…' + str.slice(-4) : str;
+  }
+
+  function setNotice(msg) {
+    const el = document.getElementById('panel-notice');
+    el.innerHTML = msg ? `<div class="notice">${msg}</div>` : '';
+  }
+
+  /* ── OS/browser initial for icon ── */
+  const ICONS = {
+    chrome:  `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 48 48" width="18" height="18"><defs><linearGradient id="chrome-a" x1="3.2173" y1="15" x2="44.7812" y2="15" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#d93025"/><stop offset="1" stop-color="#ea4335"/></linearGradient><linearGradient id="chrome-b" x1="20.7219" y1="47.6791" x2="41.5039" y2="11.6837" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fcc934"/><stop offset="1" stop-color="#fbbc04"/></linearGradient><linearGradient id="chrome-c" x1="26.5981" y1="46.5015" x2="5.8161" y2="10.506" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1e8e3e"/><stop offset="1" stop-color="#34a853"/></linearGradient></defs><circle cx="24" cy="23.9947" r="12" style="fill:#fff"/><path d="M3.2154,36A24,24,0,1,0,12,3.2154,24,24,0,0,0,3.2154,36ZM34.3923,18A12,12,0,1,1,18,13.6077,12,12,0,0,1,34.3923,18Z" style="fill:none"/><path d="M24,12H44.7812a23.9939,23.9939,0,0,0-41.5639.0029L13.6079,30l.0093-.0024A11.9852,11.9852,0,0,1,24,12Z" style="fill:url(#chrome-a)"/><circle cx="24" cy="24" r="9.5" style="fill:#1a73e8"/><path d="M34.3913,30.0029,24.0007,48A23.994,23.994,0,0,0,44.78,12.0031H23.9989l-.0025.0093A11.985,11.985,0,0,1,34.3913,30.0029Z" style="fill:url(#chrome-b)"/><path d="M13.6086,30.0031,3.218,12.006A23.994,23.994,0,0,0,24.0025,48L34.3931,30.0029l-.0067-.0068a11.9852,11.9852,0,0,1-20.7778.007Z" style="fill:url(#chrome-c)"/></svg>`,
+    safari:  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><linearGradient id="safari-a" x1="295.835" x2="295.835" y1="274.049" y2="272.933" gradientTransform="matrix(112 0 0 -112 -33069.5 30695)" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#19D7FF"/><stop offset="1" stop-color="#1E64F0"/></linearGradient><circle cx="64" cy="64" r="62.5" fill="url(#safari-a)"/><path d="M63.5 7.6v9.2h1V7.6Zm-3.902.26-.996.08.4 5 .996-.08zm8.804 0-.4 5 .996.08.4-5zm-13.709.554-.986.172 1.6 9.101.986-.173zm18.614 0-1.6 9.1.986.174 1.6-9.102zM49.883 9.47l-.965.261 1.299 4.801.965-.261Zm28.234 0-1.299 4.8.965.262 1.299-4.8zm-32.846 1.363-.943.336 3.102 8.7.941-.337zm37.458 0-3.1 8.7.941.335 3.102-8.699zm4.62 1.852-2.2 4.601.902.43 2.201-4.6zm-46.695.007-.908.416 2.1 4.6.908-.414zm-4.32 2.26-.867.498 4.6 8 .867-.498zm55.332 0-4.6 8 .868.498 4.6-8zm-59.559 2.56-.816.577 2.9 4.101.817-.578zm63.786 0-2.9 4.1.816.578 2.9-4.101zm-67.61 2.968-.765.644 5.9 7 .764-.644zm71.434 0-5.899 7 .764.644 5.9-7zm-75.168 3.263-.697.717 3.6 3.5.696-.717zm-3.33 3.574-.639.768 7.1 5.9.64-.77zm85.562 0-7.101 5.899.64.77 7.1-5.901zM18.184 31.19l-.569.823 4.201 2.9.569-.824zm91.632 0-4.2 2.899.568.824 4.2-2.9zM15.55 35.367l-.498.867 8 4.6.498-.867zm96.902 0-8 4.6.498.867 8-4.6zm-99.14 4.28-.422.906 4.5 2.1.422-.907zm101.378 0-4.5 2.1.422.905 4.5-2.1zM11.375 44.13l-.35.937 8.6 3.202.35-.938zm105.25 0-8.6 3.201.35.938 8.6-3.202zM9.828 48.816l-.256.967 4.9 1.301.257-.967zm108.344 0-4.9 1.301.255.967 4.9-1.3zM8.688 53.607l-.174.985 9.1 1.601.173-.986zm110.624 0-9.1 1.6.175.986 9.1-1.601zM8.05 58.402l-.098.996 5 .5.098-.996zm111.902 0-5 .5.098.996 5-.5zM7.801 63.4v1H17v-1zM111 63.4v1h9.2v-1zm-98.049 4.403-5 .5.098.994 5-.5zm102.098 0-.098.994 5 .5.098-.994zm-97.436 3.705-9.1 1.6.175.984 9.1-1.6zm92.774 0-.174.984 9.1 1.6.173-.985zm-95.914 5.11-4.9 1.298.255.967 4.9-1.299zm99.054 0-.256.966 4.9 1.299.257-.967zm-93.902 2.814-8.6 3.199.35.937 8.6-3.199zm88.75 0-.35.937 8.6 3.2.35-.938zm-90.986 5.615-4.5 2.1.422.906 4.5-2.1zm93.222 0-.422.906 4.5 2.1.422-.907zm-87.56 1.92-8 4.6.498.867 8-4.6zm81.898 0-.498.867 8 4.6.498-.868zm-83.133 5.822-4.2 2.9.568.823 4.2-2.9zm84.368 0-.569.822 4.201 2.9.569-.822zm-78.504.926-7.1 5.9.639.77 7.101-5.9zm72.64 0-.64.77 7.101 5.9.639-.77zm-66.902 5.863-5.9 7 .765.645 5.899-7zm61.164 0-.764.645 5.899 7 .765-.645zm5.967.164-.697.717 3.6 3.5.696-.717zm-60.48 4.606-4.6 7.9.863.504 4.6-7.9zm47.863 0-.864.504 4.6 7.9.863-.504zm-53.74 1.164-2.901 4.1.816.577 2.9-4.101zm59.617 0-.817.576 2.9 4.101.817-.578zm-46.38 2.32-3.1 8.7.942.335 3.1-8.699zm33.141 0-.941.336 3.1 8.7.943-.337zm-25.263 2.182-1.6 9.1.986.173 1.6-9.1zm17.386 0-.986.174 1.6 9.1.986-.175zm-30.742.066-2.201 4.5.898.44 2.202-4.5zm44.098 0-.899.44 2.202 4.5.898-.44Zm-22.549.82v9.2h1v-9.2zm-13.283 2.272-1.301 4.9.967.256 1.3-4.9zm27.566 0-.967.256 1.301 4.9.967-.256zm-18.781 1.687-.4 5 .996.08.4-5zm9.996 0-.996.08.4 5 .996-.08z" style="-inkscape-stroke:none" color="#000" fill="#fff"/><path fill="#f00" d="m106.7 21-48 37.7 5.2 5.2z"/><path fill="#D01414" d="m63.9 63.9 6 6L106.7 21z"/><path fill="#fff" d="m58.7 58.7-37.7 48 42.9-42.8z"/><path fill="#ACACAC" d="m21 106.7 48.9-36.8-6-6z"/></svg>`,
+    edge:    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><defs><radialGradient id="edge-b" cx="161.8" cy="68.9" r="95.4" gradientTransform="matrix(1 0 0 -.95 0 248.8)" gradientUnits="userSpaceOnUse"><stop offset=".7" stop-opacity="0"/><stop offset=".9" stop-opacity=".5"/><stop offset="1"/></radialGradient><radialGradient id="edge-d" cx="-340.3" cy="63" r="143.2" gradientTransform="matrix(.15 -.99 -.8 -.12 176.6 -125.4)" gradientUnits="userSpaceOnUse"><stop offset=".8" stop-opacity="0"/><stop offset=".9" stop-opacity=".5"/><stop offset="1"/></radialGradient><radialGradient id="edge-e" cx="113.4" cy="570.2" r="202.4" gradientTransform="matrix(-.04 1 2.13 .08 -1179.5 -106.7)" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#35c1f1"/><stop offset=".1" stop-color="#34c1ed"/><stop offset=".2" stop-color="#2fc2df"/><stop offset=".3" stop-color="#2bc3d2"/><stop offset=".7" stop-color="#36c752"/></radialGradient><radialGradient id="edge-f" cx="376.5" cy="568" r="97.3" gradientTransform="matrix(.28 .96 .78 -.23 -303.8 -148.5)" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#66eb6e"/><stop offset="1" stop-color="#66eb6e" stop-opacity="0"/></radialGradient><linearGradient id="edge-a" x1="63.3" y1="84" x2="241.7" y2="84" gradientTransform="matrix(1 0 0 -1 0 266)" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#0c59a4"/><stop offset="1" stop-color="#114a8b"/></linearGradient><linearGradient id="edge-c" x1="157.3" y1="161.4" x2="46" y2="40.1" gradientTransform="matrix(1 0 0 -1 0 266)" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1b9de2"/><stop offset=".2" stop-color="#1595df"/><stop offset=".7" stop-color="#0680d7"/><stop offset="1" stop-color="#0078d4"/></linearGradient></defs><path d="M235.7 195.5a93.7 93.7 0 0 1-10.6 4.7 101.9 101.9 0 0 1-35.9 6.4c-47.3 0-88.5-32.5-88.5-74.3a31.5 31.5 0 0 1 16.4-27.3c-42.8 1.8-53.8 46.4-53.8 72.5 0 74 68.1 81.4 82.8 81.4 7.9 0 19.8-2.3 27-4.6l1.3-.4a128.3 128.3 0 0 0 66.6-52.8 4 4 0 0 0-5.3-5.6Z" transform="translate(-4.6 -5)" style="fill:url(#edge-a)"/><path d="M235.7 195.5a93.7 93.7 0 0 1-10.6 4.7 101.9 101.9 0 0 1-35.9 6.4c-47.3 0-88.5-32.5-88.5-74.3a31.5 31.5 0 0 1 16.4-27.3c-42.8 1.8-53.8 46.4-53.8 72.5 0 74 68.1 81.4 82.8 81.4 7.9 0 19.8-2.3 27-4.6l1.3-.4a128.3 128.3 0 0 0 66.6-52.8 4 4 0 0 0-5.3-5.6Z" transform="translate(-4.6 -5)" style="isolation:isolate;opacity:.35;fill:url(#edge-b)"/><path d="M110.3 246.3A79.2 79.2 0 0 1 87.6 225a80.7 80.7 0 0 1 29.5-120c3.2-1.5 8.5-4.1 15.6-4a32.4 32.4 0 0 1 25.7 13 31.9 31.9 0 0 1 6.3 18.7c0-.2 24.5-79.6-80-79.6-43.9 0-80 41.6-80 78.2a130.2 130.2 0 0 0 12.1 56 128 128 0 0 0 156.4 67 75.5 75.5 0 0 1-62.8-8Z" transform="translate(-4.6 -5)" style="fill:url(#edge-c)"/><path d="M110.3 246.3A79.2 79.2 0 0 1 87.6 225a80.7 80.7 0 0 1 29.5-120c3.2-1.5 8.5-4.1 15.6-4a32.4 32.4 0 0 1 25.7 13 31.9 31.9 0 0 1 6.3 18.7c0-.2 24.5-79.6-80-79.6-43.9 0-80 41.6-80 78.2a130.2 130.2 0 0 0 12.1 56 128 128 0 0 0 156.4 67 75.5 75.5 0 0 1-62.8-8Z" transform="translate(-4.6 -5)" style="opacity:.41;fill:url(#edge-d);isolation:isolate"/><path d="M157 153.8c-.9 1-3.4 2.5-3.4 5.6 0 2.6 1.7 5.2 4.8 7.3 14.3 10 41.4 8.6 41.5 8.6a59.6 59.6 0 0 0 30.3-8.3 61.4 61.4 0 0 0 30.4-52.9c.3-22.4-8-37.3-11.3-43.9C228 28.8 182.3 5 132.6 5a128 128 0 0 0-128 126.2c.5-36.5 36.8-66 80-66 3.5 0 23.5.3 42 10a72.6 72.6 0 0 1 30.9 29.3c6.1 10.6 7.2 24.1 7.2 29.5s-2.7 13.3-7.8 19.9Z" transform="translate(-4.6 -5)" style="fill:url(#edge-e)"/><path d="M157 153.8c-.9 1-3.4 2.5-3.4 5.6 0 2.6 1.7 5.2 4.8 7.3 14.3 10 41.4 8.6 41.5 8.6a59.6 59.6 0 0 0 30.3-8.3 61.4 61.4 0 0 0 30.4-52.9c.3-22.4-8-37.3-11.3-43.9C228 28.8 182.3 5 132.6 5a128 128 0 0 0-128 126.2c.5-36.5 36.8-66 80-66 3.5 0 23.5.3 42 10a72.6 72.6 0 0 1 30.9 29.3c6.1 10.6 7.2 24.1 7.2 29.5s-2.7 13.3-7.8 19.9Z" transform="translate(-4.6 -5)" style="fill:url(#edge-f)"/></svg>`,
+    docker:  `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 340 268" width="18" height="18"><defs><style>.docker-st0{fill:none}.docker-st1{fill:#2560ff}.docker-st2{clip-path:url(#docker-clip)}</style><clipPath id="docker-clip"><rect class="docker-st0" width="339.5" height="268"/></clipPath></defs><g class="docker-st2"><path class="docker-st1" d="M334,110.1c-8.3-5.6-30.2-8-46.1-3.7-.9-15.8-9-29.2-24-40.8l-5.5-3.7-3.7,5.6c-7.2,11-10.3,25.7-9.2,39,.8,8.2,3.7,17.4,9.2,24.1-20.7,12-39.8,9.3-124.3,9.3H0c-.4,19.1,2.7,55.8,26,85.6,2.6,3.3,5.4,6.5,8.5,9.6,19,19,47.6,32.9,90.5,33,65.4,0,121.4-35.3,155.5-120.8,11.2.2,40.8,2,55.3-26,.4-.5,3.7-7.4,3.7-7.4l-5.5-3.7h0ZM85.2,92.7h-36.7v36.7h36.7v-36.7ZM132.6,92.7h-36.7v36.7h36.7v-36.7ZM179.9,92.7h-36.7v36.7h36.7v-36.7ZM227.3,92.7h-36.7v36.7h36.7v-36.7ZM37.8,92.7H1.1v36.7h36.7v-36.7ZM85.2,46.3h-36.7v36.7h36.7v-36.7ZM132.6,46.3h-36.7v36.7h36.7v-36.7ZM179.9,46.3h-36.7v36.7h36.7v-36.7ZM179.9,0h-36.7v36.7h36.7V0Z"/></g></svg>`,
+    firefox: `<svg xmlns="http://www.w3.org/2000/svg" height="22" width="22" viewBox="0 0 77.42 80"><defs><radialGradient id="firefox-b" cx="-7907.187" cy="-8515.1211" r="80.797" gradientTransform="translate(7973.7 8523.9959)" gradientUnits="userSpaceOnUse"><stop offset=".129" stop-color="#ffbd4f"/><stop offset=".186" stop-color="#ffac31"/><stop offset=".247" stop-color="#ff9d17"/><stop offset=".283" stop-color="#ff980e"/><stop offset=".403" stop-color="#ff563b"/><stop offset=".467" stop-color="#ff3750"/><stop offset=".71" stop-color="#f5156c"/><stop offset=".782" stop-color="#eb0878"/><stop offset=".86" stop-color="#e50080"/></radialGradient><radialGradient id="firefox-c" cx="-7936.7109" cy="-8482.0889" r="80.797" gradientTransform="translate(7973.7 8523.9959)" gradientUnits="userSpaceOnUse"><stop offset=".3" stop-color="#960e18"/><stop offset=".351" stop-color="#b11927" stop-opacity=".74"/><stop offset=".435" stop-color="#db293d" stop-opacity=".343"/><stop offset=".497" stop-color="#f5334b" stop-opacity=".094"/><stop offset=".53" stop-color="#ff3750" stop-opacity="0"/></radialGradient><radialGradient id="firefox-d" cx="-7926.9702" cy="-8533.457" r="58.534" gradientTransform="translate(7973.7 8523.9959)" gradientUnits="userSpaceOnUse"><stop offset=".132" stop-color="#fff44f"/><stop offset=".252" stop-color="#ffdc3e"/><stop offset=".506" stop-color="#ff9d12"/><stop offset=".526" stop-color="#ff980e"/></radialGradient><radialGradient id="firefox-e" cx="-7945.6479" cy="-8460.9844" r="38.471" gradientTransform="translate(7973.7 8523.9959)" gradientUnits="userSpaceOnUse"><stop offset=".353" stop-color="#3a8ee6"/><stop offset=".472" stop-color="#5c79f0"/><stop offset=".669" stop-color="#9059ff"/><stop offset="1" stop-color="#c139e6"/></radialGradient><radialGradient id="firefox-f" cx="-7935.6201" cy="-8491.5459" r="20.397" gradientTransform="matrix(.972 -.235 .275 1.138 10090.002 7833.7939)" gradientUnits="userSpaceOnUse"><stop offset=".206" stop-color="#9059ff" stop-opacity="0"/><stop offset=".278" stop-color="#8c4ff3" stop-opacity=".064"/><stop offset=".747" stop-color="#7716a8" stop-opacity=".45"/><stop offset=".975" stop-color="#6e008b" stop-opacity=".6"/></radialGradient><radialGradient id="firefox-g" cx="-7937.731" cy="-8518.4268" r="27.676" gradientTransform="translate(7973.7 8523.9959)" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffe226"/><stop offset=".121" stop-color="#ffdb27"/><stop offset=".295" stop-color="#ffc82a"/><stop offset=".502" stop-color="#ffa930"/><stop offset=".732" stop-color="#ff7e37"/><stop offset=".792" stop-color="#ff7139"/></radialGradient><radialGradient id="firefox-h" cx="-7915.9771" cy="-8535.9814" r="118.081" gradientTransform="translate(7973.7 8523.9959)" gradientUnits="userSpaceOnUse"><stop offset=".113" stop-color="#fff44f"/><stop offset=".456" stop-color="#ff980e"/><stop offset=".622" stop-color="#ff5634"/><stop offset=".716" stop-color="#ff3647"/><stop offset=".904" stop-color="#e31587"/></radialGradient><radialGradient id="firefox-i" cx="-7927.165" cy="-8522.8594" r="86.499" gradientTransform="matrix(.105 .995 -.653 .069 -4685.304 8470.1869)" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fff44f"/><stop offset=".06" stop-color="#ffe847"/><stop offset=".168" stop-color="#ffc830"/><stop offset=".304" stop-color="#ff980e"/><stop offset=".356" stop-color="#ff8b16"/><stop offset=".455" stop-color="#ff672a"/><stop offset=".57" stop-color="#ff3647"/><stop offset=".737" stop-color="#e31587"/></radialGradient><radialGradient id="firefox-j" cx="-7938.3828" cy="-8508.1758" r="73.72" gradientTransform="translate(7973.7 8523.9959)" gradientUnits="userSpaceOnUse"><stop offset=".137" stop-color="#fff44f"/><stop offset=".48" stop-color="#ff980e"/><stop offset=".592" stop-color="#ff5634"/><stop offset=".655" stop-color="#ff3647"/><stop offset=".904" stop-color="#e31587"/></radialGradient><radialGradient id="firefox-k" cx="-7918.9229" cy="-8503.8613" r="80.686" gradientTransform="translate(7973.7 8523.9959)" gradientUnits="userSpaceOnUse"><stop offset=".094" stop-color="#fff44f"/><stop offset=".231" stop-color="#ffe141"/><stop offset=".509" stop-color="#ffaf1e"/><stop offset=".626" stop-color="#ff980e"/></radialGradient><linearGradient id="firefox-a" x1="70.786" y1="12.393" x2="6.447" y2="74.468" gradientUnits="userSpaceOnUse" gradientTransform="translate(-1.3 -.004)"><stop offset=".048" stop-color="#fff44f"/><stop offset=".111" stop-color="#ffe847"/><stop offset=".225" stop-color="#ffc830"/><stop offset=".368" stop-color="#ff980e"/><stop offset=".401" stop-color="#ff8b16"/><stop offset=".462" stop-color="#ff672a"/><stop offset=".534" stop-color="#ff3647"/><stop offset=".705" stop-color="#e31587"/></linearGradient><linearGradient id="firefox-l" x1="70.013" y1="12.061" x2="15.267" y2="66.806" gradientUnits="userSpaceOnUse" gradientTransform="translate(-1.3 -.004)"><stop offset=".167" stop-color="#fff44f" stop-opacity=".8"/><stop offset=".266" stop-color="#fff44f" stop-opacity=".634"/><stop offset=".489" stop-color="#fff44f" stop-opacity=".217"/><stop offset=".6" stop-color="#fff44f" stop-opacity="0"/></linearGradient></defs><path d="M74.616 26.827c-1.684-4.052-5.1-8.427-7.775-9.81a40.266 40.266 0 013.925 11.764l.007.065C66.391 17.921 58.96 13.516 52.891 3.924c-.307-.485-.614-.971-.913-1.484-.171-.293-.308-.557-.427-.8a7.053 7.053 0 01-.578-1.535.1.1 0 00-.088-.1.138.138 0 00-.073 0c-.005 0-.013.009-.019.011s-.019.011-.028.015l.015-.026c-9.735 5.7-13.038 16.252-13.342 21.53a19.387 19.387 0 00-10.666 4.111 11.587 11.587 0 00-1-.758 17.968 17.968 0 01-.109-9.473 28.705 28.705 0 00-9.329 7.21h-.018c-1.536-1.947-1.428-8.367-1.34-9.708a6.928 6.928 0 00-1.294.687 28.225 28.225 0 00-3.788 3.245 33.845 33.845 0 00-3.623 4.347v.006-.007a32.733 32.733 0 00-5.2 11.743l-.052.256c-.073.341-.336 2.049-.381 2.42 0 .029-.006.056-.009.085A36.937 36.937 0 000 41.042v.2a38.759 38.759 0 0076.954 6.554c.065-.5.118-.995.176-1.5a39.857 39.857 0 00-2.514-19.469zm-44.67 30.338c.181.087.351.181.537.264l.027.017q-.282-.135-.564-.281zm8.878-23.376zm31.952-4.934v-.037l.007.041z" fill="url(#firefox-a)"/><path d="M74.616 26.827c-1.684-4.052-5.1-8.427-7.775-9.81a40.266 40.266 0 013.925 11.764v.037l.007.041a35.1 35.1 0 01-1.206 26.158c-4.442 9.531-15.194 19.3-32.024 18.825-18.185-.515-34.2-14.009-37.194-31.683-.545-2.787 0-4.2.274-6.465A28.876 28.876 0 000 41.042v.2a38.759 38.759 0 0076.954 6.554c.065-.5.118-.995.176-1.5a39.857 39.857 0 00-2.514-19.469z" fill="url(#firefox-b)"/><path d="M74.616 26.827c-1.684-4.052-5.1-8.427-7.775-9.81a40.266 40.266 0 013.925 11.764v.037l.007.041a35.1 35.1 0 01-1.206 26.158c-4.442 9.531-15.194 19.3-32.024 18.825-18.185-.515-34.2-14.009-37.194-31.683-.545-2.787 0-4.2.274-6.465A28.876 28.876 0 000 41.042v.2a38.759 38.759 0 0076.954 6.554c.065-.5.118-.995.176-1.5a39.857 39.857 0 00-2.514-19.469z" fill="url(#firefox-c)"/><path d="M55.782 31.383c.084.059.162.118.241.177a21.1 21.1 0 00-3.6-4.695C40.377 14.817 49.266.742 50.765.027l.015-.022c-9.735 5.7-13.038 16.252-13.342 21.53.452-.031.9-.069 1.362-.069a19.56 19.56 0 0116.982 9.917z" fill="url(#firefox-d)"/><path d="M38.825 33.789c-.064.964-3.47 4.289-4.661 4.289-11.021 0-12.81 6.667-12.81 6.667.488 5.614 4.4 10.238 9.129 12.684.216.112.435.213.654.312q.569.252 1.138.466a17.235 17.235 0 005.043.973c19.317.906 23.059-23.1 9.119-30.066a13.38 13.38 0 019.345 2.269A19.56 19.56 0 0038.8 21.466c-.46 0-.91.038-1.362.069a19.387 19.387 0 00-10.666 4.111c.591.5 1.258 1.168 2.663 2.553 2.63 2.591 9.375 5.275 9.39 5.59z" fill="url(#firefox-e)"/><path d="M38.825 33.789c-.064.964-3.47 4.289-4.661 4.289-11.021 0-12.81 6.667-12.81 6.667.488 5.614 4.4 10.238 9.129 12.684.216.112.435.213.654.312q.569.252 1.138.466a17.235 17.235 0 005.043.973c19.317.906 23.059-23.1 9.119-30.066a13.38 13.38 0 019.345 2.269A19.56 19.56 0 0038.8 21.466c-.46 0-.91.038-1.362.069a19.387 19.387 0 00-10.666 4.111c.591.5 1.258 1.168 2.663 2.553 2.63 2.591 9.375 5.275 9.39 5.59z" fill="url(#firefox-f)"/><path d="M24.965 24.357c.314.2.573.374.8.531a17.968 17.968 0 01-.109-9.473 28.705 28.705 0 00-9.329 7.21c.189-.005 5.811-.106 8.638 1.732z" fill="url(#firefox-g)"/><path d="M.354 42.159c2.991 17.674 19.009 31.168 37.194 31.683 16.83.476 27.582-9.294 32.024-18.825a35.1 35.1 0 001.206-26.158v-.037c0-.029-.006-.046 0-.037l.007.065c1.375 8.977-3.191 17.674-10.329 23.555l-.022.05c-13.908 11.327-27.218 6.834-29.912 5q-.282-.135-.564-.281c-8.109-3.876-11.459-11.264-10.741-17.6a9.953 9.953 0 01-9.181-5.775 14.618 14.618 0 0114.249-.572 19.3 19.3 0 0014.552.572c-.015-.315-6.76-3-9.39-5.59-1.405-1.385-2.072-2.052-2.663-2.553a11.587 11.587 0 00-1-.758c-.23-.157-.489-.327-.8-.531-2.827-1.838-8.449-1.737-8.635-1.732h-.018c-1.536-1.947-1.428-8.367-1.34-9.708a6.928 6.928 0 00-1.294.687 28.225 28.225 0 00-3.788 3.245 33.845 33.845 0 00-3.638 4.337v.006-.007a32.733 32.733 0 00-5.2 11.743c-.019.079-1.396 6.099-.717 9.221z" fill="url(#firefox-h)"/><path d="M52.425 26.865a21.1 21.1 0 013.6 4.7c.213.161.412.321.581.476 8.787 8.1 4.183 19.55 3.84 20.365 7.138-5.881 11.7-14.578 10.329-23.555-4.384-10.93-11.815-15.335-17.884-24.927-.307-.485-.614-.971-.913-1.484-.171-.293-.308-.557-.427-.8a7.053 7.053 0 01-.578-1.535.1.1 0 00-.088-.1.138.138 0 00-.073 0c-.005 0-.013.009-.019.011s-.019.011-.028.015c-1.499.711-10.388 14.786 1.66 26.834z" fill="url(#firefox-i)"/><path d="M56.6 32.036c-.169-.155-.368-.315-.581-.476-.079-.059-.157-.118-.241-.177a13.38 13.38 0 00-9.345-2.269c13.94 6.97 10.2 30.972-9.119 30.066a17.235 17.235 0 01-5.043-.973q-.569-.213-1.138-.466c-.219-.1-.438-.2-.654-.312l.027.017c2.694 1.839 16 6.332 29.912-5l.022-.05c.347-.81 4.951-12.263-3.84-20.36z" fill="url(#firefox-j)"/><path d="M21.354 44.745s1.789-6.667 12.81-6.667c1.191 0 4.6-3.325 4.661-4.289a19.3 19.3 0 01-14.552-.572 14.618 14.618 0 00-14.249.572 9.953 9.953 0 009.181 5.775c-.718 6.337 2.632 13.725 10.741 17.6.181.087.351.181.537.264-4.733-2.445-8.641-7.069-9.129-12.683z" fill="url(#firefox-k)"/><path d="M74.616 26.827c-1.684-4.052-5.1-8.427-7.775-9.81a40.266 40.266 0 013.925 11.764l.007.065C66.391 17.921 58.96 13.516 52.891 3.924c-.307-.485-.614-.971-.913-1.484-.171-.293-.308-.557-.427-.8a7.053 7.053 0 01-.578-1.535.1.1 0 00-.088-.1.138.138 0 00-.073 0c-.005 0-.013.009-.019.011s-.019.011-.028.015l.015-.026c-9.735 5.7-13.038 16.252-13.342 21.53.452-.031.9-.069 1.362-.069a19.56 19.56 0 0116.982 9.917 13.38 13.38 0 00-9.345-2.269c13.94 6.97 10.2 30.972-9.119 30.066a17.235 17.235 0 01-5.043-.973q-.569-.213-1.138-.466c-.219-.1-.438-.2-.654-.312l.027.017q-.282-.135-.564-.281c.181.087.351.181.537.264-4.733-2.446-8.641-7.07-9.129-12.684 0 0 1.789-6.667 12.81-6.667 1.191 0 4.6-3.325 4.661-4.289-.015-.315-6.76-3-9.39-5.59-1.405-1.385-2.072-2.052-2.663-2.553a11.587 11.587 0 00-1-.758 17.968 17.968 0 01-.109-9.473 28.705 28.705 0 00-9.329 7.21h-.018c-1.536-1.947-1.428-8.367-1.34-9.708a6.928 6.928 0 00-1.294.687 28.225 28.225 0 00-3.788 3.245 33.845 33.845 0 00-3.623 4.347v.006-.007a32.733 32.733 0 00-5.2 11.743l-.052.256c-.073.341-.4 2.073-.447 2.445 0 .028 0-.029 0 0A45.094 45.094 0 000 41.042v.2a38.759 38.759 0 0076.954 6.554c.065-.5.118-.995.176-1.5a39.857 39.857 0 00-2.514-19.469zm-3.845 1.991l.007.041z" fill="url(#firefox-l)"/></svg>`,
+    windows: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4875 4875"><path fill="#0078d4" d="M0 0h2311v2310H0zm2564 0h2311v2310H2564zM0 2564h2311v2311H0zm2564 0h2311v2311H2564"/></svg>`,
+    linux:   `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="6 8 36 36"><polygon fill="#ECEFF1" points="20.1,18.2 20.2,20.5 18.6,23.5 16.1,28.4 15.6,32.5 17.4,38.3 21.5,40.6 27.7,40.6 33.5,36.2,36.1,29.3 30.1,22 28.4,17.9 "/><path fill="#263238" d="M34.3,23.9c-1.6-2.3-2.9-3.7-3.6-6.6c-0.7-2.9,0.2-2.1-0.4-4.6c-0.3-1.3-0.8-2.2-1.3-2.9,c-0.6-0.7-1.3-1.1-1.7-1.2c-0.9-0.5-3-1.3-5.6,0.1c-2.7,1.4-2.4,4.4-1.9,10.5c0,0.4-0.1,0.9-0.3,1.3c-0.4,0.9-1.1,1.7-1.7,2.4,c-0.7,1-1.4,2-1.9,3.1c-1.2,2.3-2.3,5.2-2,6.3c0.5-0.1,6.8,9.5,6.8,9.7c0.4-0.1,2.1-0.1,3.6-0.1c2.1-0.1,3.3-0.2,5,0.2,c0-0.3-0.1-0.6-0.1-0.9c0-0.6,0.1-1.1,0.2-1.8c0.1-0.5,0.2-1,0.3-1.6c-1,0.9-2.8,1.9-4.5,2.2c-1.5,0.3-4-0.2-5.2-1.7,c0.1,0,0.3,0,0.4-0.1c0.3-0.1,0.6-0.2,0.7-0.4c0.3-0.5,0.1-1-0.1-1.3c-0.2-0.3-1.7-1.4-2.4-2c-0.7-0.6-1.1-0.9-1.5-1.3,c0,0-0.6-0.6-0.8-0.8c-0.2-0.2-0.3-0.4-0.4-0.5c-0.2-0.5-0.3-1.1-0.2-1.9c0.1-1.1,0.5-2,1-3c0.2-0.4,0.7-1.2,0.7-1.2,s-1.7,4.2-0.8,5.5c0,0,0.1-1.3,0.5-2.6c0.3-0.9,0.8-2.2,1.4-2.9s2.1-3.3,2.2-4.9c0-0.7,0.1-1.4,0.1-1.9c-0.4-0.4,6.6-1.4,7-0.3,c0.1,0.4,1.5,4,2.3,5.9c0.4,0.9,0.9,1.7,1.2,2.7c0.3,1.1,0.5,2.6,0.5,4.1c0,0.3,0,0.8-0.1,1.3c0.2,0,4.1-4.2-0.5-7.7,c0,0,2.8,1.3,2.9,3.9c0.1,2.1-0.8,3.8-1,4.1c0.1,0,2.1,0.9,2.2,0.9c0.4,0,1.2-0.3,1.2-0.3c0.1-0.3,0.4-1.1,0.4-1.4,C37.6,29.9,35.9,26.2,34.3,23.9z"/><g><ellipse fill="#ECEFF1" cx="21.6" cy="15.3" rx="1.3" ry="2"/><ellipse fill="#ECEFF1" cx="26.1" cy="15.2" rx="1.7" ry="2.3"/></g><g><ellipse transform="matrix(-0.1254 -0.9921 0.9921 -0.1254 8.9754 38.9969)" fill="#212121" cx="21.7" cy="15.5" rx="1.2" ry="0.7"/><ellipse fill="#212121" cx="26" cy="15.6" rx="1" ry="1.3"/></g><g><path fill="#FFC107" d="M39.3,37.6c-0.4-0.2-1.1-0.5-1.7-1.4c-0.3-0.5-0.2-1.9-0.7-2.5c-0.3-0.4-0.7-0.2-0.8-0.2,c-0.9,0.2-3,1.6-4.4,0c-0.2-0.2-0.5-0.5-1-0.5c-0.5,0-0.7,0.2-0.9,0.6s-0.2,0.7-0.2,1.7c0,0.8,0,1.7-0.1,2.4,c-0.2,1.7-0.5,2.7-0.5,3.7c0,1.1,0.3,1.8,0.7,2.1c0.3,0.3,0.8,0.5,1.9,0.5c1.1,0,1.8-0.4,2.5-1.1c0.5-0.5,0.9-0.7,2.3-1.7,c1.1-0.7,2.8-1.6,3.1-1.9c0.2-0.2,0.5-0.3,0.5-0.9C40,37.9,39.6,37.7,39.3,37.6z"/><path fill="#FFC107" d="M19.2,37.9c-1-1.6-1.1-1.9-1.8-2.9c-0.6-1-1.9-2.9-2.7-2.9c-0.6,0-0.9,0.3-1.3,0.7,c-0.4,0.4-0.8,1.3-1.5,1.8c-0.6,0.5-2.3,0.4-2.7,1c-0.4,0.6,0.4,1.5,0.4,3c0,0.6-0.5,1-0.6,1.4c-0.1,0.5-0.2,0.8,0,1.2,c0.4,0.6,0.9,0.8,4.3,1.5c1.8,0.4,3.5,1.4,4.6,1.5c1.1,0.1,3,0,3-2.7C21,39.9,20.1,39.5,19.2,37.9z"/><path fill="#FFC107" d="M21.1,19.8C20.5,19.4,20,19,20,18.4c0-0.6,0.4-0.8,1-1.3c0.1-0.1,1.2-1.1,2.3-1.1s2.4,0.7,2.9,0.9,c0.9,0.2,1.8,0.4,1.7,1.1c-0.1,1-0.2,1.2-1.2,1.7c-0.7,0.2-2,1.3-2.9,1.3c-0.4,0-1,0-1.4-0.1C22.1,20.8,21.6,20.3,21.1,19.8z"/></g><g><path fill="#634703" d="M20.9,19c0.2,0.2,0.5,0.4,0.8,0.5c0.2,0.1,0.5,0.2,0.5,0.2c0.4,0,0.7,0,0.9,0c0.5,0,1.2-0.2,1.9-0.6,c0.7-0.3,0.8-0.5,1.3-0.7c0.5-0.3,1-0.6,0.8-0.7c-0.2-0.1-0.4,0-1.1,0.4c-0.6,0.4-1.1,0.6-1.7,0.9c-0.3,0.1-0.7,0.3-1,0.3,c-0.3,0-0.6,0-0.9,0c-0.3,0-0.5-0.1-0.8-0.2c-0.2-0.1-0.3-0.2-0.4-0.2c-0.2-0.1-0.6-0.5-0.8-0.6c0,0-0.2,0-0.1,0.1,C20.6,18.7,20.7,18.8,20.9,19z"/><path fill="#634703" d="M23.9,16.8c0.1,0.2,0.3,0.2,0.4,0.3c0.1,0.1,0.2,0.1,0.2,0.1c0.1-0.1,0-0.3-0.1-0.3,C24.4,16.7,23.9,16.7,23.9,16.8z"/><path fill="#634703" d="M22.3,17c0,0.1,0.2,0.2,0.2,0.1c0.1-0.1,0.2-0.2,0.3-0.2c0.2-0.1,0.1-0.2-0.2-0.2,C22.4,16.8,22.4,16.9,22.3,17z"/></g><path fill="#455A64" d="M32,34.7c0,0.1,0,0.2,0,0.3c0.2,0.4,0.7,0.5,1.1,0.5c0.6,0,1.2-0.4,1.5-0.8c0-0.1,0.1-0.2,0.2-0.3,c0.2-0.3,0.3-0.5,0.4-0.6c0,0-0.1-0.1-0.1-0.2c-0.1-0.2-0.4-0.4-0.8-0.5c-0.3-0.1-0.8-0.2-1-0.2c-0.9-0.1-1.4,0.2-1.7,0.5,c0,0,0.1,0,0.1,0.1c0.2,0.2,0.3,0.4,0.3,0.7C32.1,34.4,32,34.5,32,34.7z"/></svg>`,
+    mac:     `<svg viewBox="-56.24 0 608.728 608.728" xmlns="http://www.w3.org/2000/svg" fill="#000000"><g id="SVGRepo_bgCarrier" stroke-width="0"></g><g id="SVGRepo_tracerCarrier" stroke-linecap="round" stroke-linejoin="round"></g><g id="SVGRepo_iconCarrier"><path d="M273.81 52.973C313.806.257 369.41 0 369.41 0s8.271 49.562-31.463 97.306c-42.426 50.98-90.649 42.638-90.649 42.638s-9.055-40.094 26.512-86.971zM252.385 174.662c20.576 0 58.764-28.284 108.471-28.284 85.562 0 119.222 60.883 119.222 60.883s-65.833 33.659-65.833 115.331c0 92.133 82.01 123.885 82.01 123.885s-57.328 161.357-134.762 161.357c-35.565 0-63.215-23.967-100.688-23.967-38.188 0-76.084 24.861-100.766 24.861C89.33 608.73 0 455.666 0 332.628c0-121.052 75.612-184.554 146.533-184.554 46.105 0 81.883 26.588 105.852 26.588z" fill="#999"></path></g></svg>`,
+    android: `<svg viewBox="19.932999999999996 68.509 228.155 228.155" xmlns="http://www.w3.org/2000/svg" fill="#000000"><g id="SVGRepo_bgCarrier" stroke-width="0"></g><g id="SVGRepo_tracerCarrier" stroke-linecap="round" stroke-linejoin="round"></g><g id="SVGRepo_iconCarrier"><path d="M101.885 207.092c7.865 0 14.241 6.376 14.241 14.241v61.09c0 7.865-6.376 14.24-14.241 14.24-7.864 0-14.24-6.375-14.24-14.24v-61.09c0-7.864 6.376-14.24 14.24-14.24z" fill="#a4c639"></path><path d="M69.374 133.645c-.047.54-.088 1.086-.088 1.638v92.557c0 9.954 7.879 17.973 17.66 17.973h94.124c9.782 0 17.661-8.02 17.661-17.973v-92.557c0-.552-.02-1.1-.066-1.638H69.374z" fill="#a4c639"></path><path d="M166.133 207.092c7.865 0 14.241 6.376 14.241 14.241v61.09c0 7.865-6.376 14.24-14.241 14.24-7.864 0-14.24-6.375-14.24-14.24v-61.09c0-7.864 6.376-14.24 14.24-14.24zM46.405 141.882c7.864 0 14.24 6.376 14.24 14.241v61.09c0 7.865-6.376 14.241-14.24 14.241-7.865 0-14.241-6.376-14.241-14.24v-61.09c-.001-7.865 6.375-14.242 14.241-14.242zM221.614 141.882c7.864 0 14.24 6.376 14.24 14.241v61.09c0 7.865-6.376 14.241-14.24 14.241-7.865 0-14.241-6.376-14.241-14.24v-61.09c0-7.865 6.376-14.242 14.241-14.242zM69.79 127.565c.396-28.43 25.21-51.74 57.062-54.812h14.312c31.854 3.073 56.666 26.384 57.062 54.812H69.79z" fill="#a4c639"></path><path d="M74.743 70.009l15.022 26.02M193.276 70.009l-15.023 26.02" fill="none" stroke="#a4c639" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path><path d="M114.878 102.087c.012 3.974-3.277 7.205-7.347 7.216-4.068.01-7.376-3.202-7.388-7.176v-.04c-.011-3.975 3.278-7.205 7.347-7.216 4.068-.011 7.376 3.2 7.388 7.176v.04zM169.874 102.087c.012 3.974-3.277 7.205-7.347 7.216-4.068.01-7.376-3.202-7.388-7.176v-.04c-.011-3.975 3.278-7.205 7.347-7.216 4.068-.011 7.376 3.2 7.388 7.176v.04z" fill="#ffffff"></path></g></svg>`,
+    dcp:     `<svg xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:svg="http://www.w3.org/2000/svg" xmlns="http://www.w3.org/2000/svg" height="75" width="68" id="svg184" version="1.1" viewBox="0 0 439.48998 498.37"> <metadata id="metadata188"><rdf:RDF><cc:Work rdf:about=""><dc:format>image/svg+xml</dc:format><dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage" /><dc:title>Asset 4</dc:title></cc:Work></rdf:RDF></metadata><defs id="defs102"><style id="style100">.cls-1{fill:none;}.cls-2{fill:#00a372;}.cls-3{fill:#6fc393;}.cls-4{fill:#ffdd15;}.cls-5{fill:#fff;}.cls-6{fill:#e4e7e7;}.cls-7{fill:#231f20;}</style></defs><title id="title104">Asset 4</title><g data-name="Layer 2" id="Layer_2"><g data-name="Layer 1" id="Layer_1-2"><path style="fill:#00a372" id="path126" d="M 40,447.62 219.74,498.37 399.49,447.62 439.49,0 H 0 Z M 219.92,92.35 v 56.29 h -78.3 l 16.06,179 62.13,17.67 h 0.18 v -0.09 l 0.22,-0.07 V 148.64 h -0.29 V 92.35 h 0.29 V 35 H 400.07 L 366.28,419.05 220.21,460.37 V 403.7 l -0.22,0.06 v 0 l -0.18,0.05 L 105.05,371.16 80.11,92.35 Z" class="cls-2" /><path style="fill:#6fc393" id="path128" d="m 285.68,285.41 h 56.51 l -7.61,85.75 -114.37,32.54 v 56.67 L 366.28,419.05 400.07,35 H 220.21 V 92.35 H 362.59 L 352.38,207.4 h -56.51 l 5.22,-58.76 h -80.88 v 196.54 l 61.73,-17.56 z m -65.47,118.46 v -0.11 l 0.18,0.06 z" class="cls-3" /><polygon style="fill:#ffdd15" id="polygon130" points="220.21,403.76 220.21,403.87 220.4,403.82 " class="cls-4" /><polygon style="fill:#ffffff" id="polygon132" points="362.59,92.35 220.21,92.35 219.92,92.35 219.92,148.64 220.21,148.64 301.09,148.64 295.88,207.4 352.38,207.4 " class="cls-5" /><polygon style="fill:#ffffff" id="polygon134" points="219.99,403.76 220.21,403.7 334.58,371.16 342.19,285.41 285.68,285.41 281.94,327.62 220.21,345.18 219.99,345.25 219.99,345.34 220,345.34 220,403.76 219.99,403.76 " class="cls-5" /><polygon style="fill:#e4e7e7" id="polygon136" points="220,403.76 220,345.34 219.99,345.34 219.81,345.29 157.68,327.62 141.62,148.64 219.92,148.64 219.92,92.35 80.11,92.35 105.05,371.16 219.81,403.81 219.99,403.76 "class="cls-6" /></g></g></svg>`,
+    opera:   `<svg viewBox="0 0 75.591 75.591" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><linearGradient id="opera-a" gradientTransform="matrix(0 -54.944 -54.944 0 23.62 79.474)" gradientUnits="userSpaceOnUse" x2="1"><stop offset="0" stop-color="#ff1b2d"/><stop offset=".3" stop-color="#ff1b2d"/><stop offset=".614" stop-color="#ff1b2d"/><stop offset="1" stop-color="#a70014"/></linearGradient><linearGradient id="opera-b" gradientTransform="matrix(0 -48.595 -48.595 0 37.854 76.235)" gradientUnits="userSpaceOnUse" x2="1"><stop offset="0" stop-color="#9c0000"/><stop offset=".7" stop-color="#ff4b4b"/><stop offset="1" stop-color="#ff4b4b"/></linearGradient><g transform="matrix(1.3333 0 0 -1.3333 0 107.2)"><path d="m28.346 80.398c-15.655 0-28.346-12.691-28.346-28.346 0-15.202 11.968-27.609 26.996-28.313.44848-.02115.89766-.03314 1.3504-.03314 7.2574 0 13.876 2.7289 18.891 7.2137-3.3227-2.2036-7.2074-3.4715-11.359-3.4715-6.7504 0-12.796 3.3488-16.862 8.6297-3.1344 3.6999-5.1645 9.1691-5.3028 15.307v1.3349c.13821 6.1377 2.1683 11.608 5.302 15.307 4.0666 5.2809 10.112 8.6297 16.862 8.6297 4.1526 0 8.038-1.2679 11.361-3.4729-4.9904 4.4643-11.569 7.1876-18.786 7.2144-.03596 0-.07122.0014-.10718.0014z" fill="url(#opera-a)"/><path d="m19.016 68.025c2.6013 3.0709 5.9607 4.9227 9.631 4.9227 8.2524 0 14.941-9.356 14.941-20.897s-6.6891-20.897-14.941-20.897c-3.6703 0-7.0297 1.851-9.6303 4.922 4.0659-5.2809 10.111-8.6297 16.862-8.6297 4.1519 0 8.0366 1.2679 11.359 3.4715 5.802 5.1906 9.4554 12.735 9.4554 21.133 0 8.397-3.6527 15.941-9.4533 21.131-3.3234 2.205-7.2088 3.4729-11.361 3.4729-6.7504 0-12.796-3.3488-16.862-8.6297" fill="url(#opera-b)"/></g></svg>`,
+    brave:   `<svg width="56" height="64" viewBox="0 0 56 64" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M53.292 15.321l1.5-3.676s-1.909-2.043-4.227-4.358c-2.317-2.315-7.225-.953-7.225-.953L37.751 0H18.12l-5.589 6.334s-4.908-1.362-7.225.953C2.988 9.602 1.08 11.645 1.08 11.645l1.5 3.676-1.91 5.447s5.614 21.236 6.272 23.83c1.295 5.106 2.181 7.08 5.862 9.668 3.68 2.587 10.36 7.08 11.45 7.762 1.091.68 2.455 1.84 3.682 1.84 1.227 0 2.59-1.16 3.68-1.84 1.091-.681 7.77-5.175 11.452-7.762 3.68-2.587 4.567-4.562 5.862-9.668.657-2.594 6.27-23.83 6.27-23.83l-1.908-5.447z" fill="url(#paint0_linear)"/><path fill-rule="evenodd" clip-rule="evenodd" d="M34.888 11.508c.818 0 6.885-1.157 6.885-1.157s7.189 8.68 7.189 10.536c0 1.534-.619 2.134-1.347 2.842-.152.148-.31.3-.467.468l-5.39 5.717a9.42 9.42 0 01-.176.18c-.538.54-1.33 1.336-.772 2.658l.115.269c.613 1.432 1.37 3.2.407 4.99-1.025 1.906-2.78 3.178-3.905 2.967-1.124-.21-3.766-1.589-4.737-2.218-.971-.63-4.05-3.166-4.05-4.137 0-.809 2.214-2.155 3.29-2.81.214-.13.383-.232.48-.298.111-.075.297-.19.526-.332.981-.61 2.754-1.71 2.799-2.197.055-.602.034-.778-.758-2.264-.168-.316-.365-.654-.568-1.004-.754-1.295-1.598-2.745-1.41-3.784.21-1.173 2.05-1.845 3.608-2.415.194-.07.385-.14.567-.209l1.623-.609c1.556-.582 3.284-1.229 3.57-1.36.394-.181.292-.355-.903-.468a54.655 54.655 0 01-.58-.06c-1.48-.157-4.209-.446-5.535-.077-.261.073-.553.152-.86.235-1.49.403-3.317.897-3.493 1.182-.03.05-.06.093-.089.133-.168.238-.277.394-.091 1.406.055.302.169.895.31 1.629.41 2.148 1.053 5.498 1.134 6.25.011.106.024.207.036.305.103.84.171 1.399-.805 1.622l-.255.058c-1.102.252-2.717.623-3.3.623-.584 0-2.2-.37-3.302-.623l-.254-.058c-.976-.223-.907-.782-.804-1.622.012-.098.024-.2.035-.305.081-.753.725-4.112 1.137-6.259.14-.73.253-1.32.308-1.62.185-1.012.076-1.168-.092-1.406a3.743 3.743 0 01-.09-.133c-.174-.285-2-.779-3.491-1.182-.307-.083-.6-.162-.86-.235-1.327-.37-4.055-.08-5.535.077-.226.024-.422.045-.58.06-1.196.113-1.297.287-.903.468.285.131 2.013.778 3.568 1.36.597.223 1.17.437 1.624.609.183.069.373.138.568.21 1.558.57 3.398 1.241 3.608 2.414.187 1.039-.657 2.489-1.41 3.784-.204.35-.4.688-.569 1.004-.791 1.486-.812 1.662-.757 2.264.044.488 1.816 1.587 2.798 2.197.229.142.415.257.526.332.098.066.266.168.48.298 1.076.654 3.29 2 3.29 2.81 0 .97-3.078 3.507-4.05 4.137-.97.63-3.612 2.008-4.737 2.218-1.124.21-2.88-1.061-3.904-2.966-.963-1.791-.207-3.559.406-4.99l.115-.27c.559-1.322-.233-2.118-.772-2.658a9.377 9.377 0 01-.175-.18l-5.39-5.717c-.158-.167-.316-.32-.468-.468-.728-.707-1.346-1.308-1.346-2.842 0-1.855 7.189-10.536 7.189-10.536s6.066 1.157 6.884 1.157c.653 0 1.913-.433 3.227-.885.333-.114.669-.23 1-.34 1.635-.545 2.726-.549 2.726-.549s1.09.004 2.726.549c.33.11.667.226 1 .34 1.313.452 2.574.885 3.226.885zm-1.041 30.706c1.282.66 2.192 1.128 2.536 1.343.445.278.174.803-.232 1.09-.405.285-5.853 4.499-6.381 4.965l-.215.191c-.509.459-1.159 1.044-1.62 1.044-.46 0-1.11-.586-1.62-1.044l-.213-.191c-.53-.466-5.977-4.68-6.382-4.966-.405-.286-.677-.81-.232-1.09.344-.214 1.255-.683 2.539-1.344l1.22-.629c1.92-.992 4.315-1.837 4.689-1.837.373 0 2.767.844 4.689 1.837.436.226.845.437 1.222.63z" fill="#fff"/><path fill-rule="evenodd" clip-rule="evenodd" d="M43.34 6.334L37.751 0H18.12l-5.589 6.334s-4.908-1.362-7.225.953c0 0 6.544-.59 8.793 3.064 0 0 6.066 1.157 6.884 1.157.818 0 2.59-.68 4.226-1.225 1.636-.545 2.727-.549 2.727-.549s1.09.004 2.726.549 3.408 1.225 4.226 1.225c.818 0 6.885-1.157 6.885-1.157 2.249-3.654 8.792-3.064 8.792-3.064-2.317-2.315-7.225-.953-7.225-.953z" fill="url(#paint1_linear)"/><defs><linearGradient id="paint0_linear" x1=".671" y1="64.319" x2="55.2" y2="64.319" gradientUnits="userSpaceOnUse"><stop stop-color="#F50"/><stop offset=".41" stop-color="#F50"/><stop offset=".582" stop-color="#FF2000"/><stop offset="1" stop-color="#FF2000"/></linearGradient><linearGradient id="paint1_linear" x1="6.278" y1="11.466" x2="50.565" y2="11.466" gradientUnits="userSpaceOnUse"><stop stop-color="#FF452A"/><stop offset="1" stop-color="#FF2000"/></linearGradient></defs></svg>`,
+  };
+
+  function workerIcon(w) {
+    const label   = (w.label        || '').toLowerCase();
+    const os      = (w.os           || '').toLowerCase();
+    const browser = (w.browser?.type || '').toLowerCase();
+
+    // label checks first — most specific signal
+    const labelMatches = [
+      ['chrome',   'chrome'],
+      ['firefox',  'firefox'],
+      ['safari',   'safari'],
+      ['ios',      'safari'],
+      ['edge',     'edge'],
+      ['opera',    'opera'],
+      ['brave',    'brave'],
+      ['docker',   'docker'],
+      ['ilovedcp', 'dcp'],
+    ];
+    for (const [kw, icon] of labelMatches)
+      if (label.includes(kw) && ICONS[icon]) return ICONS[icon];
+
+    // OS checks
+    const osMatches = [
+      [/ios|iphone|ipad/, 'safari'],
+      [/android/,         'android'],
+      [/win/,             'windows'],
+      [/mac/,             'mac'],
+      [/linux/,           'linux'],
+    ];
+    for (const [re, icon] of osMatches)
+      if (re.test(os) && ICONS[icon]) return ICONS[icon];
+
+    // browser type fallback
+    const browserMatches = [
+      ['chrome',  'chrome'],
+      ['firefox', 'firefox'],
+      ['safari',  'safari'],
+      ['edge',    'edge'],
+      ['opera',   'opera'],
+      ['brave',   'brave'],
+    ];
+    for (const [kw, icon] of browserMatches)
+      if (browser.includes(kw) && ICONS[icon]) return ICONS[icon];
+
+    return null;
+  }
+
+  async function fetchWorkerSnapshots() {
+    try {
+      const conn   = await getDb();
+      const cursor = await conn.select({ table: 'workerSnapshot', prototype: {} });
+      const rows   = [];
+      for (let row = await cursor.getFirst(); row; row = await cursor.getNext())
+        rows.push(row);
+      return rows;
+    } catch(e) {
+      console.warn('[workers] fetch failed', e);
+      return null;
+    }
+  }
+
+  function sortBy(field) {
+    sortField === field ? sortDir *= -1 : (sortField = field, sortDir = -1);
+    applySearch();
+  }
+
+  function applySearch() {
+    filtered = [...allWorkers];
+    filtered.sort((a, b) => {
+      let av = a[sortField] ?? '', bv = b[sortField] ?? '';
+      return av < bv ? sortDir : av > bv ? -sortDir : 0;
+    });
+    currentPage = 0;
+    renderPage();
+  }
+
+  function populateDetailGrid(id) {
+    const w = allWorkers.find(w => (w.id ?? w.workerOpaqueId) === id);
+    if (!w) return;
+    const grid = document.getElementById(`detail-grid-${id}`);
+    if (!grid) return;
+    const sections = [
+      { title: 'Host', rows: [
+        ['Hostname',  w.hostname],
+        ['Local IP',  w.localIpAddress],
+        ['MAC',       w.macAddress],
+        ['OS',        w.os],
+        ['Browser',   w.browser?.type ? `${w.browser.type} ${w.browser.version}` : null],
+        ['Site',      w.browser?.site ?? null],
+      ]},
+      { title: 'Hardware', rows: [
+        ['CPU Cores', w.cpuCores || null],
+        ['CPU',       (w.cpuType && w.cpuType !== 'unknown') ? w.cpuType : null],
+        ['GPU Cores', w.gpuCores || null],
+        ['GPU',       (w.gpuType && w.gpuType !== 'unknown') ? w.gpuType : null],
+        ['RAM', (w.ram && w.ram > 1024*1024) ? (Math.round(w.ram/(1024**3)*10)/10)+' GB' : 'unknown'],
+      ]},
+      { title: 'Earnings', rows: [
+        ['Account',    w.earningsAccount],
+        ['Total',      fmtDcc(w.earnings)],
+        ['Last Active',timeAgo(w.taskTime)],
+      ]},
+    ];
+    grid.innerHTML = sections
+      .filter(s => s.rows.some(r => r[1] != null && r[1] !== ''))
+      .map(s => `
+        <div class="detail-group">
+          <h4>${s.title}</h4>
+          ${s.rows.filter(r => r[1] != null && r[1] !== '').map(r => `
+            <div class="detail-row">
+              <span class="detail-key">${r[0]}</span>
+              <span class="detail-val">${String(r[1])}</span>
+            </div>`).join('')}
+        </div>`).join('');
+  }
+
+  let mapExpanded = true;
+
+  function toggleMap() {
+    const mapEl   = document.querySelector('.worker-map');
+    const chevron = document.getElementById('map-toggle-chevron');
+    mapExpanded = !mapExpanded;
+    mapEl.classList.toggle('collapsed', !mapExpanded);
+    chevron.textContent = mapExpanded ? '∨' : '∧';
+
+    // tell Leaflet to recalculate after the CSS transition finishes
+    if (mapExpanded && leafletMap) {
+      setTimeout(() => leafletMap.invalidateSize(), 360);
+    }
+  }
+
+  function renderPage() {
+    const tbody = document.getElementById('workers-tbody');
+    const start = currentPage * PAGE_SIZE;
+    const slice = filtered.slice(start, start + PAGE_SIZE);
+    const total = filtered.length;
+
+    if (!slice.length) {
+      tbody.innerHTML = `<tr class="empty-row"><td colspan="7">No workers found.</td></tr>`;
+    } else {
+      tbody.innerHTML = slice.map(w => {
+        const running  = w.running === true || w.running === 'yes';
+        const dotCls   = running ? 'dot-green' : 'dot-red';
+        const checked  = selectedIds.has(w.workerOpaqueId) ? 'checked' : '';
+        const isSel    = selectedId === (w.id ?? w.workerOpaqueId);
+        const icon     = workerIcon(w);
+        const iconHtml = icon
+          ? `<div class="worker-icon">${icon}</div>`
+          : `<div class="worker-icon" style="font-size:11px">?</div>`;
+          return `
+            <tr class="${isSel ? 'selected' : ''}" data-worker="${encodeURIComponent(JSON.stringify(w))}" onclick="rowClick(event, this)">
+              <td onclick="event.stopPropagation()">
+                <input type="checkbox" ${checked} data-id="${w.workerOpaqueId}"
+                  onchange="toggleCheck('${w.workerOpaqueId}', this.checked)">
+              </td>
+              <td><span class="dot ${dotCls}"></span></td>
+              <td>${iconHtml}</td>
+              <td><span class="label-text">${w.label || '<span style="color:var(--text-dim);font-style:italic">unlabelled</span>'}</span></td>
+              <td class="mono">${trunc(w.workerOpaqueId, 12)}</td>
+              <td class="mono">${timeAgo(w.taskTime)}</td>
+              <td class="earnings-val">${fmtDcc(w.earnings)}</td>
+            </tr>
+            <tr class="detail-row-inline ${isSel ? 'open' : ''}" data-detail-for="${w.id ?? w.workerOpaqueId}">
+              <td colspan="7" class="detail-row-inline-cell">
+                <div class="detail-inner" id="detail-grid-${w.id ?? w.workerOpaqueId}"></div>
+              </td>
+            </tr>`; 
+          }).join('');
+
+      if (selectedId) populateDetailGrid(selectedId);
+    }
+
+    document.getElementById('pg-prev').disabled = currentPage === 0;
+    document.getElementById('pg-next').disabled = start + PAGE_SIZE >= total;
+    document.getElementById('pg-info').textContent = total
+      ? `${start+1}–${Math.min(start+PAGE_SIZE, total)} / ${total}`
+      : '0';
+
+    updateStats();
+    updateDeleteBtn();
+  }
+
+  function changePage(dir) {
+    currentPage = Math.max(0, currentPage + dir);
+    renderPage();
+  }
+
+  function updateStats() {
+    const active = allWorkers.filter(w => w.running === true || w.running === 'yes');
+    const total  = allWorkers;
+
+    document.getElementById('hdr-active').textContent = active.length;
+    document.getElementById('hdr-total').textContent  = total.length;
+
+    const sum = (arr, field) => arr.reduce((acc, w) => acc + (Number(w[field]) || 0), 0);
+
+    document.getElementById('hdr-cpus-active').textContent = sum(active, 'cpuCores');
+    document.getElementById('hdr-cpus-total').textContent  = sum(total,  'cpuCores');
+    document.getElementById('hdr-gpus-active').textContent = sum(active, 'gpuCores');
+    document.getElementById('hdr-gpus-total').textContent  = sum(total,  'gpuCores');
+  }
+
+  function toggleCheck(id, checked) {
+    checked ? selectedIds.add(id) : selectedIds.delete(id);
+    updateDeleteBtn();
+    const page = filtered.slice(currentPage*PAGE_SIZE, (currentPage+1)*PAGE_SIZE);
+    document.getElementById('select-all').checked = page.every(w => selectedIds.has(w.workerOpaqueId));
+  }
+
+  function toggleSelectAll(checked) {
+    filtered.slice(currentPage*PAGE_SIZE, (currentPage+1)*PAGE_SIZE)
+      .forEach(w => checked ? selectedIds.add(w.workerOpaqueId) : selectedIds.delete(w.workerOpaqueId));
+    renderPage();
+  }
+
+  function updateDeleteBtn() {
+    document.getElementById('btn-delete').disabled = selectedIds.size === 0;
+  }
+
+  function rowClick(ev, row) {
+    if (ev.target.tagName === 'INPUT') return;
+    const w  = JSON.parse(decodeURIComponent(row.dataset.worker));
+    const id = w.id ?? w.workerOpaqueId;
+    if (selectedId === id) { closeDetail(); return; }
+    selectedId = id;
+    renderPage();
+  }
+
+  function closeDetail() {
+    selectedId = null;
+    renderPage();
+  }
+
+  function deleteSelected() {
+    if (!selectedIds.size) return;
+    if (!confirm(`Delete ${selectedIds.size} worker(s)? They will revert to default configuration on next restart.`)) return;
+    (async () => {
+      try {
+        const conn = await getDb();
+        for (const opaqueId of selectedIds) {
+          await conn.delete({ table: 'worker', prototype: { opaqueId } });
+          for (const t of ['dcpWorkerAppConfig','workerRunInfo','workerTaskInfo','workerConfigValue','workerNotifications','workerCreds'])
+            try { await conn.delete({ table: t, prototype: { workerOpaqueId: opaqueId } }); } catch(_) {}
+        }
+        selectedIds.clear();
+        document.getElementById('select-all').checked = false;
+        updateDeleteBtn();
+        await loadWorkers(true);
+      } catch(e) {
+        setNotice('Delete failed: ' + e.message);
+      }
+    })();
+  }
+
+  async function loadWorkers(manual = false) {
+    if (manual) {
+      closeDetail();
+      currentPage = 0;
+      document.getElementById('workers-tbody').innerHTML =
+        '<tr class="empty-row"><td colspan="7">Refreshing…</td></tr>';
+    }
+    setNotice('');
+    const rows = await fetchWorkerSnapshots();
+    if (rows === null) {
+      setNotice('Could not reach the scheduler.');
+      document.getElementById('workers-tbody').innerHTML =
+        '<tr class="empty-row"><td colspan="7">Unable to load workers.</td></tr>';
+      return;
+    }
+    allWorkers = rows;
+    applySearch();
+    refreshMap()
+  }
+
+  window.addEventListener('load', async () => {
+    await loadWorkers();
+    setInterval(() => loadWorkers(), 5000);
+  });
+
+  /* ══════════════════════════════════════════════
+     JOB PANEL
+  ══════════════════════════════════════════════ */
+
+  let jobRunning  = false;
+  let slicesDone  = 0;
+  let slicesTotal = 0;
+
+  function jobLog(msg) {
+    const el = document.getElementById('jobConsole');
+    el.value += msg + '\n';
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function setJobStatus(state, text) {
+    const pill = document.getElementById('job-status');
+    pill.className = `job-status-pill ${state}`;
+    pill.textContent = text;
+  }
+
+  function setProgress(pct) {
+    document.getElementById('job-progress-fill').style.width = `${Math.min(100, pct)}%`;
+  }
+
+  async function deployJob() {
+    if (jobRunning) return;
+    jobRunning  = true;
+    slicesDone  = 0;
+    slicesTotal = parseInt(document.getElementById('slices-input').value, 10) || 20;
+
+    const btn = document.getElementById('deploy-btn');
+    btn.disabled = true;
+    document.getElementById('jobConsole').value = '';
+    document.getElementById('job-id-display').textContent = '';
+    setJobStatus('running', 'Deploying…');
+    setProgress(0);
+
+    try {
+      const key = await new dcp.wallet.Keystore(
+        '0x87ba424720c4a221f0f9c541928f366b2d1b6c78bff4107288c1e9985dd88a91', '' //demo@dcp.cloud
+      );
+      if (!dcp.identity.check()) {
+        await dcp.identity.set(key);
+      }
+
+      function generateSequence(seed, length = 10000) {
+        const bases = ['A', 'T', 'G', 'C'];
+        let s = seed, seq = '';
+        for (let i = 0; i < length; i++) {
+          s = (s * 1664525 + 1013904223) & 0xffffffff;
+          seq += bases[((s >>> 16) & 0xff) % 4];
+        }
+        return seq;
+      }
+
+      const inputSet = Array.from({ length: slicesTotal }, (_, i) => generateSequence(i + 1));
+
+      async function workFunction(sequence) {
+        progress(0);
+
+        function swAffine(seqA, seqB, match, mismatch, gapOpen, gapExtend) {
+          const n = seqA.length, m = seqB.length;
+          let M_prev  = new Float64Array(m + 1), Ix_prev = new Float64Array(m + 1);
+          let M_curr  = new Float64Array(m + 1), Ix_curr = new Float64Array(m + 1);
+          let Iy      = new Float64Array(m + 1);
+          const NEG_INF = -1e18;
+          let maxScore = 0;
+          for (let i = 1; i <= n; i++) {
+            Iy.fill(NEG_INF);
+            for (let j = 1; j <= m; j++) {
+              const sub  = seqA[i-1] === seqB[j-1] ? match : mismatch;
+              const mVal = Math.max(0, M_prev[j-1]+sub, Ix_prev[j-1]+sub, Iy[j-1]+sub);
+              const ixVal = Math.max(M_prev[j]-gapOpen, Ix_prev[j]-gapExtend);
+              const iyVal = Math.max(M_curr[j-1]-gapOpen, Iy[j-1]-gapExtend);
+              M_curr[j] = mVal; Ix_curr[j] = ixVal; Iy[j] = iyVal;
+              if (mVal > maxScore) maxScore = mVal;
+            }
+            [M_prev, M_curr] = [M_curr, M_prev];
+            [Ix_prev, Ix_curr] = [Ix_curr, Ix_prev];
+            M_curr.fill(0); Ix_curr.fill(NEG_INF);
+          }
+          return maxScore;
+        }
+
+        function slidingEntropy(seq, W) {
+          let totalEntropy = 0;
+          const counts = new Float64Array(4);
+          const baseIdx = { A:0, T:1, G:2, C:3 };
+          for (let i = 0; i <= seq.length - W; i++) {
+            counts.fill(0);
+            for (let k = 0; k < W; k++) counts[baseIdx[seq[i+k]]]++;
+            let H = 0;
+            for (let b = 0; b < 4; b++) {
+              if (counts[b] > 0) { const p = counts[b]/W; H -= p * Math.log2(p); }
+            }
+            totalEntropy += H;
+          }
+          return totalEntropy / (seq.length - W + 1);
+        }
+
+        function viterbiHMM(seq) {
+          const STATES = 16;
+          const LOG_MATCH  = Math.log(0.85), LOG_INSERT = Math.log(0.10), LOG_DELETE = Math.log(0.05);
+          const LOG_EMIT_MATCH = [
+            Math.log(0.40), Math.log(0.20), Math.log(0.25), Math.log(0.15),
+            Math.log(0.15), Math.log(0.40), Math.log(0.25), Math.log(0.20),
+            Math.log(0.20), Math.log(0.25), Math.log(0.40), Math.log(0.15),
+            Math.log(0.25), Math.log(0.15), Math.log(0.20), Math.log(0.40),
+          ];
+          const baseIdx = { A:0, T:1, G:2, C:3 };
+          const NEG_INF = -Infinity;
+          let dp = new Float64Array(STATES).fill(NEG_INF);
+          dp[0] = 0;
+          for (let i = 0; i < seq.length; i++) {
+            const next = new Float64Array(STATES).fill(NEG_INF);
+            const bIdx = baseIdx[seq[i]] ?? 0;
+            for (let s = 0; s < STATES; s++) {
+              if (dp[s] === NEG_INF) continue;
+              for (let t = 0; t < STATES; t++) {
+                const logTrans = (t%4===s%4) ? LOG_MATCH : (t%4===(s+1)%4) ? LOG_INSERT : LOG_DELETE;
+                const val = dp[s] + logTrans + LOG_EMIT_MATCH[(t%4)*4+bIdx];
+                if (val > next[t]) next[t] = val;
+              }
+            }
+            dp = next;
+          }
+          return Math.max(...dp);
+        }
+
+        const meanEntropy = slidingEntropy(sequence, 16);
+        progress(0.10);
+
+        const refLen = 1500, numRefs = 16;
+        const scoringSchemes = [
+          { match:3.0, mismatch:-2.0, gapOpen:5.0, gapExtend:0.5 },
+          { match:2.0, mismatch:-1.0, gapOpen:3.0, gapExtend:1.0 },
+          { match:4.0, mismatch:-3.0, gapOpen:7.0, gapExtend:0.3 },
+          { match:1.5, mismatch:-1.5, gapOpen:2.0, gapExtend:2.0 },
+        ];
+        const alignmentScores = [];
+        let passCount = 0;
+        const totalPasses = numRefs * scoringSchemes.length;
+        for (let r = 0; r < numRefs; r++) {
+          const offset = Math.floor((r/numRefs) * (sequence.length - refLen));
+          const ref = sequence.slice(offset, offset + refLen);
+          for (const sc of scoringSchemes) {
+            alignmentScores.push(swAffine(sequence, ref, sc.match, sc.mismatch, sc.gapOpen, sc.gapExtend));
+            passCount++;
+            progress(0.10 + (passCount/totalPasses) * 0.60);
+          }
+        }
+        progress(0.70);
+
+        const viterbiScore = viterbiHMM(sequence);
+        progress(0.85);
+
+        const K = 10, kmerCounts = {};
+        for (let i = 0; i <= sequence.length - K; i++) {
+          const kmer = sequence.slice(i, i+K);
+          kmerCounts[kmer] = (kmerCounts[kmer] || 0) + 1;
+        }
+        progress(0.90);
+
+        const counts = { A:0, T:0, G:0, C:0 };
+        for (const base of sequence) counts[base] = (counts[base] || 0) + 1;
+        const gcContent = (((counts.G + counts.C) / sequence.length) * 100).toFixed(2);
+        const windowSize = Math.floor(sequence.length / 10);
+        const gcSkew = [];
+        for (let w = 0; w < 10; w++) {
+          const seg = sequence.slice(w*windowSize, (w+1)*windowSize);
+          let g = 0, c = 0;
+          for (const b of seg) { if (b==='G') g++; else if (b==='C') c++; }
+          gcSkew.push(((g-c)/(g+c||1)).toFixed(3));
+        }
+        progress(0.93);
+
+        const stopCodons = new Set(['TAA','TAG','TGA']);
+        const orfs = [];
+        const revComp = sequence.split('').reverse().map(b=>({A:'T',T:'A',G:'C',C:'G'}[b])).join('');
+        for (const strand of [sequence, revComp]) {
+          for (let frame = 0; frame < 3; frame++) {
+            let orfStart = -1;
+            for (let i = frame; i <= strand.length-3; i+=3) {
+              const codon = strand.slice(i, i+3);
+              if (codon==='ATG' && orfStart===-1) orfStart = i;
+              else if (stopCodons.has(codon) && orfStart!==-1) {
+                orfs.push({ frame, start:orfStart, end:i+3, length:i+3-orfStart });
+                orfStart = -1;
+              }
+            }
+          }
+        }
+        const longestORF = orfs.reduce((best,o) => o.length>best.length?o:best, {length:0,frame:-1,start:-1});
+        progress(0.96);
+
+        const sites = { EcoRI:'GAATTC', BamHI:'GGATCC', HindIII:'AAGCTT', NotI:'GCGGCCGC', XhoI:'CTCGAG' };
+        const siteHits = {};
+        for (const [name, motif] of Object.entries(sites)) {
+          let count=0, pos=0;
+          while ((pos=sequence.indexOf(motif,pos))!==-1) { count++; pos++; }
+          siteHits[name] = count;
+        }
+        const topKmers = Object.entries(kmerCounts).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>`${k}(${v})`);
+        progress(1);
+
+        return {
+          length:sequence.length, composition:counts, gcContent:`${gcContent}%`,
+          gcSkew, meanEntropy:meanEntropy.toFixed(4), alignmentScores,
+          viterbiScore:viterbiScore.toFixed(4), orfCount:orfs.length,
+          longestORF, topKmers, restrictionSites:siteHits,
+        };
+      }
+
+      const job = dcp.compute.for(inputSet, workFunction);
+
+      job.computeGroups = [{ joinKey:'kathmandu', joinSecret:'70aad79df9209af529' }];
+      job.public = {
+        name: '🧬 Genomic Sequence Analyser',
+        description: 'Distributed genomics: k-mer profiling, Smith-Waterman pairwise alignment, ORF detection, restriction mapping',
+        link: 'https://distributive.network'
+      };
+
+      job.on('readystatechange', (ev) => { jobLog(`▸ ${ev}`); setJobStatus('running', ev); });
+
+      job.on('accepted', () => {
+        document.getElementById('job-id-display').textContent = job.id;
+        jobLog(`▸ Job accepted  ${job.id}`);
+        setJobStatus('running', 'Running');
+      });
+
+      job.on('result', (ev) => {
+        slicesDone++;
+        setProgress((slicesDone / slicesTotal) * 100);
+        const r = ev.result;
+        const sites  = Object.entries(r.restrictionSites).map(([k,v])=>`${k}:${v}`).join('  ');
+        const scores = r.alignmentScores.map(s=>s.toFixed(1)).join(' ');
+        jobLog(
+          `\n── Slice ${ev.sliceNumber} ──────────────────────────────\n` +
+          `   Length:      ${r.length} bp\n` +
+          `   GC:          ${r.gcContent}  Entropy: ${r.meanEntropy} bits\n` +
+          `   Composition: A=${r.composition.A} T=${r.composition.T} G=${r.composition.G} C=${r.composition.C}\n` +
+          `   GC Skew:     [${r.gcSkew.join(', ')}]\n` +
+          `   SW Scores:   ${scores}\n` +
+          `   Viterbi:     ${r.viterbiScore}\n` +
+          `   ORFs:        ${r.orfCount}  Longest: ${r.longestORF.length}bp (frame ${r.longestORF.frame}, pos ${r.longestORF.start}\u2013${r.longestORF.end})\n` +
+          `   Top k-mers:  ${r.topKmers.join('  ')}\n` +
+          `   Restriction: ${sites}`
+        );
+      });
+
+      job.on('error',   (err) => { jobLog(`✗ Error: ${JSON.stringify(err, null, 2)}`); setJobStatus('error', 'Error'); });
+      job.on('nofunds', (ev)  => jobLog(`✗ No funds: ${JSON.stringify(ev, null, 2)}`));
+      job.on('console', (con) => jobLog(`  [worker] ${JSON.stringify(con, null, 2)}`));
+
+      const pay = await new dcp.wallet.Keystore(
+        '0x54e1cd0f8ee633e9f0807cf644342fb8175da6037d204fe655b215caafba7b8e', '' //demo@dcp.cloud
+      );
+
+      job.setPaymentAccountKeystore(pay);
+      job.setSlicePaymentOffer(8.456);
+      job.greedyEstimation = true;
+      job.estimationSlices = Infinity;
+      await job.exec();
+
+      jobLog('\n═══ Analysis complete — 12 sequences processed ═══');
+      setJobStatus('done', 'Complete');
+      setProgress(100);
+
+    } catch(e) {
+      jobLog(`✗ ${e.message}`);
+      setJobStatus('error', 'Error');
+    } finally {
+      jobRunning = false;
+      document.getElementById('deploy-btn').disabled = false;
+    }
+  }
+
+  let leafletMap  = null;
+let mapMarkers  = [];
+
+function isPublicIp(ip) {
+  if (!ip) return false;
+  return !/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|127\.|169\.254\.|::1|fc|fd)/.test(ip);
+}
+
+async function geolocateIp(ip) {
+  try {
+    const r = await fetch(`https://ip-api.com/json/${ip}?fields=lat,lon,city,country,status`);
+    const d = await r.json();
+    return d.status === 'success' ? d : null;
+  } catch { return null; }
+}
+
+async function refreshMap() {
+  if (!leafletMap) {
+    const container = document.getElementById('worker-map-el');
+    container.style.height = '100%';
+    leafletMap = L.map(container, { zoomControl: true, attributionControl: false })
+      .setView([35, 0], 1);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19
+    }).addTo(leafletMap);
+    setTimeout(() => {
+      leafletMap.invalidateSize();
+      leafletMap.setView([35, 0], 1);
+    }, 200);
+  }
+
+  // clear old markers
+  mapMarkers.forEach(m => m.remove());
+  mapMarkers = [];
+
+  // collect public IPs and count duplicates
+  const ipCounts = {};
+  for (const w of allWorkers) {
+    const ip = w.localIpAddress;
+    if (isPublicIp(ip)) ipCounts[ip] = (ipCounts[ip] || 0) + 1;
+  }
+
+  for (const [ip, count] of Object.entries(ipCounts)) {
+    const geo = await geolocateIp(ip);
+    if (!geo) continue;
+    const radius = 6 + Math.sqrt(count) * 5;
+    const circle = L.circleMarker([geo.lat, geo.lon], {
+      radius,
+      color:       'rgba(204,80,201,0.9)',
+      fillColor:   'rgba(204,80,201,0.3)',
+      fillOpacity: 1,
+      weight:      1.5,
+    }).addTo(leafletMap);
+    circle.bindTooltip(`${geo.city}, ${geo.country} — ${count} worker${count>1?'s':''}`, {
+      className: 'map-tooltip'
+    });
+    mapMarkers.push(circle);
+  }
+}
+</script>
+</body>
+</html>
