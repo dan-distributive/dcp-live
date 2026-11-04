@@ -1,0 +1,1106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DCP Worker</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyBpZD0iTGF5ZXJfMSIgZGF0YS1uYW1lPSJMYXllciAxIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MjUuMzEgNTk1LjcxIj4KICA8ZGVmcz4KICAgIDxzdHlsZT4KICAgICAgLmNscy0xIHsKICAgICAgICBmaWxsOiAjZmZkZTE3OwogICAgICB9CgogICAgICAuY2xzLTIgewogICAgICAgIGZpbGw6ICMwMGE0NzM7CiAgICAgIH0KCiAgICAgIC5jbHMtMyB7CiAgICAgICAgZmlsbDogI2ZmZjsKICAgICAgfQoKICAgICAgLmNscy00IHsKICAgICAgICBmaWxsOiAjNmZjNDk1OwogICAgICB9CgogICAgICAuY2xzLTUgewogICAgICAgIGZpbGw6ICNlNWU3ZTc7CiAgICAgIH0KICAgIDwvc3R5bGU+CiAgPC9kZWZzPgogIDxwb2x5Z29uIGNsYXNzPSJjbHMtMiIgcG9pbnRzPSI1MjUuMzEgMCA0NzcuNTEgNTM1LjA0IDI2Mi42NiA1OTUuNzEgNDcuOCA1MzUuMDQgMCAwIDUyNS4zMSAwIi8+CiAgPHBvbHlnb24gY2xhc3M9ImNscy00IiBwb2ludHM9IjI2My4yMiA1NTAuMjggNDM3LjgxIDUwMC45IDQ3OC4yIDQxLjc5IDI2My4yMiA0MS43OSAyNjMuMjIgNTUwLjI4Ii8+CiAgPHBvbHlnb24gY2xhc3M9ImNscy0xIiBwb2ludHM9IjI2My4yMiA0ODIuNjIgMjYzLjIyIDQ4Mi43NSAyNjMuNDQgNDgyLjY4IDI2My4yMiA0ODIuNjIiLz4KICA8cG9seWdvbiBjbGFzcz0iY2xzLTEiIHBvaW50cz0iMjYzLjIyIDQxMi42NyAyNjMuMjIgNDEyLjggMjYzLjQ0IDQxMi43MyAyNjMuMjIgNDEyLjY3Ii8+CiAgPGc+CiAgICA8cG9seWdvbiBjbGFzcz0iY2xzLTMiIHBvaW50cz0iNDMzLjQgMTEwLjM5IDQyMS4yIDI0Ny45IDM1My42NiAyNDcuOSAzNTkuODkgMTc3LjY3IDI2Mi44NyAxNzcuNjcgMjYyLjg3IDExMC4zOSA0MzMuNCAxMTAuMzkiLz4KICAgIDxwb2x5Z29uIGNsYXNzPSJjbHMtMyIgcG9pbnRzPSIzNDEuNDggMzQxLjE1IDQwOS4wMiAzNDEuMTUgMzk5LjkyIDQ0My42NSAyNjIuOTYgNDgyLjYyIDI2Mi45NiA0MTIuOCAyNjIuOTYgNDEyLjY3IDMzNyAzOTEuNiAzNDEuNDggMzQxLjE1Ii8+CiAgPC9nPgogIDxwb2x5Z29uIGNsYXNzPSJjbHMtNSIgcG9pbnRzPSIyNjIuODcgMTEwLjM5IDI2Mi44NyAxNzcuNjcgMTY5LjI3IDE3Ny42NyAxODguNDggMzkxLjYgMjYyLjc0IDQxMi43MyAyNjIuOTYgNDEyLjggMjYyLjk2IDQ4Mi42MiAyNjIuNzQgNDgyLjY4IDEyNS41NiA0NDMuNjUgOTUuNzYgMTEwLjM5IDI2Mi44NyAxMTAuMzkiLz4KPC9zdmc+Cg==">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&family=Inter:wght@400;600;700&display=swap');
+
+  :root {
+    --bg-deep:     #05130d;
+    --accent:      #00a473; /* DCP green, primary + interactive */
+    --accent-lt:   #6fc495; /* lighter green, for press/hover pop */
+    --pop:         #f0fbf5; /* near-white with a whisper of green, for "catch the eye" text */
+    --value:       #ffde17; /* DCP yellow, earnings counter */
+    --text:        #d6efe2;
+    --text-dim:    #5d8b76;
+    --grid-line:   rgba(0,164,115,0.08);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    background: var(--bg-deep);
+    font-family: 'Syne', sans-serif;
+    overflow: hidden;
+  }
+
+  /* Animated grid background — green-tinted */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 40px 40px;
+    animation: gridDrift 20s linear infinite;
+    pointer-events: none;
+  }
+
+  @keyframes gridDrift {
+    from { background-position: 0 0; }
+    to   { background-position: 40px 40px; }
+  }
+
+  /* Scanline overlay */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 3px,
+      rgba(0,0,0,0.07) 3px,
+      rgba(0,0,0,0.07) 4px
+    );
+    pointer-events: none;
+  }
+
+  .center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ── DCP logo ── */
+  .title-logo {
+    width: 160px;
+    line-height: 1;
+    margin-bottom: 28px;
+    user-select: none;
+  }
+
+  /* ── Subtitle: what Start actually does — present, not shouting ── */
+  .subtitle {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    font-weight: 400;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 28px;
+    user-select: none;
+  }
+
+  .title-logo svg {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  .title-logo.transitions-ready {
+    transition: filter 0.3s;
+  }
+
+  .title-logo.running {
+    animation: helixPulse 3.6s ease-in-out infinite;
+  }
+
+  @keyframes helixPulse {
+    0%   { filter: drop-shadow(0 0 0px  rgba(0,164,115,0));    transform: scale(1);    }
+    50%  { filter: drop-shadow(0 0 16px rgba(0,164,115,0.55)) drop-shadow(0 0 34px rgba(111,196,149,0.25)); transform: scale(1.03); }
+    100% { filter: drop-shadow(0 0 0px  rgba(0,164,115,0));    transform: scale(1);    }
+  }
+
+  /* ── Button (crosshair / HUD, push-based, brackets outside) ── */
+  .start-btn {
+    --corner-offset: -2px;   /* negative: brackets sit outside the rectangle */
+    --corner-w:      12px;
+    --corner-h:      8px;
+    --corner-thick:  1.5px;
+    --corner-color:  var(--accent);
+
+    position: relative;
+    background: rgba(0,164,115,0.06);
+    color: var(--accent);
+    border: 1px solid rgba(0,164,115,0.35);
+    border-radius: 0;
+    padding: 14px 32px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.35em;
+    text-transform: uppercase;
+    cursor: pointer;
+    margin-bottom: 28px;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    overflow: visible;
+    transition: transform 0.1s ease-out, background 0.12s ease, box-shadow 0.2s ease, color 0.12s ease;
+  }
+
+  .start-btn { display: inline-grid; place-items: center; }
+  .start-btn .label, .start-btn .sizer { grid-area: 1 / 1; position: relative; z-index: 1; }
+  .start-btn .sizer { visibility: hidden; }
+
+  .start-btn::before, .start-btn::after, .start-btn .c1, .start-btn .c2 {
+    content: ""; position: absolute;
+    width: var(--corner-w); height: var(--corner-h);
+    pointer-events: none;
+    transition: border-color 0.12s ease;
+  }
+  .start-btn::before { top: var(--corner-offset);    left:  var(--corner-offset);
+    border-top:    var(--corner-thick) solid var(--corner-color);
+    border-left:   var(--corner-thick) solid var(--corner-color); }
+  .start-btn::after  { top: var(--corner-offset);    right: var(--corner-offset);
+    border-top:    var(--corner-thick) solid var(--corner-color);
+    border-right:  var(--corner-thick) solid var(--corner-color); }
+  .start-btn .c1     { bottom: var(--corner-offset); left:  var(--corner-offset);
+    border-bottom: var(--corner-thick) solid var(--corner-color);
+    border-left:   var(--corner-thick) solid var(--corner-color); }
+  .start-btn .c2     { bottom: var(--corner-offset); right: var(--corner-offset);
+    border-bottom: var(--corner-thick) solid var(--corner-color);
+    border-right:  var(--corner-thick) solid var(--corner-color); }
+
+  /* PUSH: whole unit compresses on tap; brackets scale in with it */
+  .start-btn:active, .start-btn.pressed {
+    --corner-color: var(--accent-lt);
+    background: rgba(0,164,115,0.26);
+    transform: scale(0.97);
+    box-shadow: 0 0 22px rgba(0,164,115,0.35);
+  }
+
+  /* desktop-only hover, never fires on touch */
+  @media (hover: hover) {
+    .start-btn:hover { background: rgba(0,164,115,0.12); --corner-color: var(--accent-lt); }
+  }
+
+  .start-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 1px var(--accent), 0 0 18px rgba(0,164,115,0.30);
+  }
+
+  .start-btn:disabled {
+    --corner-color: var(--text-dim); opacity: 0.5; cursor: not-allowed; box-shadow: none;
+  }
+
+  .start-btn.running { --corner-color: var(--accent-lt); }
+  .start-btn.running::before, .start-btn.running::after,
+  .start-btn.running .c1, .start-btn.running .c2 { animation: cornerPulse 1.8s ease-in-out infinite; }
+  @keyframes cornerPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .start-btn, .start-btn::before, .start-btn::after,
+    .start-btn .c1, .start-btn .c2 { transition: none; animation: none; }
+  }
+
+  /* ── Progress section ── */
+  .progress-section {
+    width: 300px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    margin-top: 0;
+    transition: max-height 0.5s ease, opacity 0.4s ease, margin-top 0.5s ease;
+  }
+
+  .progress-section.visible {
+    max-height: 200px;
+    opacity: 1;
+    margin-top: 28px;
+  }
+
+  .progress-row {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: max-height 0.4s ease, opacity 0.35s ease;
+  }
+
+  .progress-row.visible {
+    max-height: 60px;
+    opacity: 1;
+  }
+
+  .progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .progress-job-name {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+  }
+
+  .progress-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .progress-sandbox {
+    font-family: 'Space Mono', monospace;
+    font-size: 8px;
+    color: var(--text-dim);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+
+  .progress-pct {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+    min-width: 36px;
+    text-align: right;
+  }
+
+  .progress-track {
+    height: 3px;
+    background: rgba(0,164,115,0.15);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--accent), var(--text));
+    box-shadow: 0 0 8px rgba(0,164,115,0.5);
+    transition: width 0.6s ease;
+  }
+
+  /* ── Deposit info ── */
+  .deposit-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    margin-top: 0;
+    transition: max-height 0.5s ease, opacity 0.5s ease, margin-top 0.5s ease;
+  }
+
+  .deposit-info.visible {
+    max-height: 80px;
+    opacity: 1;
+    margin-top: 32px;
+  }
+
+  .deposit-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 8px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  .deposit-total {
+    color: var(--value);
+    font-size: 10px;
+  }
+
+  .deposit-unit {
+    color: var(--text-dim);
+  }
+
+  .deposit-address {
+    font-family: 'Space Mono', monospace;
+    font-size: 9.5px;
+    color: var(--accent-lt);
+    letter-spacing: 0.05em;
+  }
+
+  .deposit-address .addr-dim { color: var(--text-dim); }
+
+  .deposit-link {
+    font-family: 'Space Mono', monospace;
+    font-size: 8px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+    margin-top: 2px;
+  }
+
+  .deposit-link:hover {
+    color: var(--accent-lt);
+    border-color: var(--accent-lt);
+  }
+
+  /* ── Params drawer ──
+     Tab stays small/low-contrast at rest (text-dim, not accent) so it doesn't compete with the
+     logo/Start button — the page's two focal points — especially on phone-width screens. */
+  .params-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    height: 100%;
+    width: min(46vw, 420px);
+    overflow: visible;
+    transform: translateX(100%);
+    transition: transform 0.35s cubic-bezier(.2,.8,.2,1);
+    z-index: 40;
+  }
+
+  .params-drawer.open {
+    transform: translateX(0);
+  }
+
+  @media (max-width: 640px) {
+    .params-drawer { width: 100vw; }
+  }
+
+  .params-drawer-panel {
+    height: 100%;
+    overflow-y: auto;
+    background: rgba(6,20,14,0.88);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    border-left: 1px solid rgba(0,164,115,0.18);
+    padding: 28px 24px 36px;
+  }
+
+  .drawer-tab {
+    position: absolute;
+    top: 50%;
+    left: -26px;
+    transform: translateY(-50%);
+    width: 26px;
+    padding: 16px 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(6,20,14,0.75);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(0,164,115,0.18);
+    border-right: none;
+    border-radius: 0;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.15s ease;
+  }
+
+  .drawer-tab span {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    font-family: 'Inter', sans-serif;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    white-space: nowrap;
+    transition: color 0.15s ease;
+  }
+
+  .drawer-tab:hover span,
+  .params-drawer.open .drawer-tab span {
+    color: var(--pop);
+  }
+
+  @media (hover: hover) {
+    .drawer-tab:hover { background: rgba(0,164,115,0.10); }
+  }
+
+  .params-drawer-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 6px;
+  }
+
+  .params-drawer-header h2 {
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+
+  .drawer-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-dim);
+    font-size: 14px;
+    line-height: 1;
+    padding: 4px;
+    flex-shrink: 0;
+  }
+
+  .drawer-close:hover { color: var(--accent); }
+
+  /* Hierarchy: the two things worth scanning for — the param name and the literal URL syntax —
+     get the bright, light-green pop (--accent-lt). Everything else (prose description, the
+     "Default:" aside) stays muted/dim so it reads as supporting detail, not competition. */
+  .params-drawer-intro {
+    font-family: 'Inter', sans-serif;
+    font-size: 11.5px;
+    line-height: 1.6;
+    color: var(--text-dim);
+    margin: 10px 0 22px;
+  }
+
+  .params-drawer-intro code {
+    font-family: 'Space Mono', monospace;
+    font-size: 10.5px;
+    color: var(--pop);
+    background: rgba(111,196,149,0.08);
+    border-radius: 3px;
+    padding: 1px 5px;
+  }
+
+  .params-drawer-intro .param-example {
+    margin-top: 8px;
+  }
+
+  .params-list { display: flex; flex-direction: column; }
+
+  .params-list > div {
+    padding: 14px 0;
+    border-top: 1px solid rgba(255,255,255,0.07);
+  }
+
+  .params-list > div:first-child { padding-top: 0; border-top: none; }
+
+  .params-list dt {
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--pop);
+  }
+
+  .params-list dd {
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--text-dim);
+    margin-top: 5px;
+  }
+
+  .param-default {
+    display: block;
+    margin-top: 6px;
+    font-family: 'Inter', sans-serif;
+    font-size: 10.5px;
+    color: var(--text-dim);
+  }
+
+  .param-default b {
+    font-weight: 600;
+    color: var(--text-dim);
+  }
+
+  .param-example {
+    display: block;
+    margin-top: 8px;
+    font-family: 'Space Mono', monospace;
+    font-size: 10.5px;
+    color: var(--pop);
+    background: rgba(111,196,149,0.07);
+    border: 1px solid rgba(111,196,149,0.14);
+    border-radius: 5px;
+    padding: 5px 8px;
+    word-break: break-all;
+  }
+</style>
+</head>
+<body>
+  <div class="center">
+    <div class="title-logo" id="logo">
+      <svg data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 525.31 595.71">
+        <polygon fill="#00a473" points="525.31 0 477.51 535.04 262.66 595.71 47.8 535.04 0 0 525.31 0"/>
+        <polygon fill="#6fc495" points="263.22 550.28 437.81 500.9 478.2 41.79 263.22 41.79 263.22 550.28"/>
+        <polygon fill="#ffde17" points="263.22 482.62 263.22 482.75 263.44 482.68 263.22 482.62"/>
+        <polygon fill="#ffde17" points="263.22 412.67 263.22 412.8 263.44 412.73 263.22 412.67"/>
+        <g>
+          <polygon fill="#fff" points="433.4 110.39 421.2 247.9 353.66 247.9 359.89 177.67 262.87 177.67 262.87 110.39 433.4 110.39"/>
+          <polygon fill="#fff" points="341.48 341.15 409.02 341.15 399.92 443.65 262.96 482.62 262.96 412.8 262.96 412.67 337 391.6 341.48 341.15"/>
+        </g>
+        <polygon fill="#e5e7e7" points="262.87 110.39 262.87 177.67 169.27 177.67 188.48 391.6 262.74 412.73 262.96 412.8 262.96 482.62 262.74 482.68 125.56 443.65 95.76 110.39 262.87 110.39"/>
+      </svg>
+    </div>
+    <div class="subtitle">Compute using your device's CPU/GPU</div>
+    <button class="start-btn" id="btn" onclick="toggleWorker()">
+      <span class="label">Start</span>
+      <span class="sizer" aria-hidden="true">Stopping...</span>
+      <span class="c1"></span>
+      <span class="c2"></span>
+    </button>
+    <div class="progress-section" id="progressSection">
+      <!-- sandbox progress rows injected here -->
+    </div>
+    <div class="deposit-info" id="depositInfo">
+      <span class="deposit-label"><span class="deposit-total" id="depositTotal">0.000</span> <span class="deposit-unit">⊇ deposited to</span></span>
+      <span class="deposit-address" id="depositAddress">0xa8450ec85759273f509f10cf146259a83ca2368e</span>
+      <a class="deposit-link" href="https://dcp.cloud" target="_blank" rel="noopener">
+        Create your own account at dcp.cloud ↗
+      </a>
+    </div>
+  </div>
+
+  <aside class="params-drawer" id="paramsDrawer">
+    <button class="drawer-tab" id="drawerTab" aria-label="Toggle URL parameters" aria-expanded="false" aria-controls="paramsDrawer">
+      <span>Params</span>
+    </button>
+    <div class="params-drawer-panel">
+      <div class="params-drawer-header">
+        <h2>URL Parameters</h2>
+        <button class="drawer-close" id="drawerClose" aria-label="Close">✕</button>
+      </div>
+      <p class="params-drawer-intro">
+        Add these as query parameters to this page's URL to customize the worker. Multiple params are joined with <code>&amp;</code>.
+        <code class="param-example">?maxSandboxes=4&amp;paymentAddress=0xYOUR_ADDRESS</code>
+      </p>
+      <dl class="params-list">
+        <div>
+          <dt>registrationKey</dt>
+          <dd>Private key this browser registers as a worker under. Changing it re-registers under the new key.</dd>
+          <span class="param-default"><b>Default:</b> none — the worker runs unregistered.</span>
+          <code class="param-example">?registrationKey=0xYOUR_PRIVATE_KEY</code>
+        </div>
+        <div>
+          <dt>paymentAddress</dt>
+          <dd>Wallet address earnings are deposited to.</dd>
+          <span class="param-default"><b>Default:</b> demo address shown below the Start button.</span>
+          <code class="param-example">?paymentAddress=0xYOUR_WALLET_ADDRESS</code>
+        </div>
+        <div>
+          <dt>computeGroups</dt>
+          <dd>Which compute group to join, as joinKey,joinSecret.</dd>
+          <span class="param-default"><b>Default:</b> demo / dcp.</span>
+          <code class="param-example">?computeGroups=mykey,mysecret</code>
+        </div>
+        <div>
+          <dt>jobIds</dt>
+          <dd>Comma-separated job IDs to restrict work to.</dd>
+          <span class="param-default"><b>Default:</b> none (any available job).</span>
+          <code class="param-example">?jobIds=jeHgigTXPURl6xMgUz9oNw,anotherJobId</code>
+        </div>
+        <div>
+          <dt>maxSandboxes</dt>
+          <dd>Maximum number of concurrent sandboxes (parallel work slots).</dd>
+          <span class="param-default"><b>Default:</b> 2.</span>
+          <code class="param-example">?maxSandboxes=4</code>
+        </div>
+        <div>
+          <dt>cpuUtilization</dt>
+          <dd>Fraction of CPU capacity to offer, 0–1.</dd>
+          <span class="param-default"><b>Default:</b> 1.</span>
+          <code class="param-example">?cpuUtilization=0.5</code>
+        </div>
+        <div>
+          <dt>gpuUtilization</dt>
+          <dd>Fraction of GPU capacity to offer, 0–1.</dd>
+          <span class="param-default"><b>Default:</b> 1.</span>
+          <code class="param-example">?gpuUtilization=0</code>
+        </div>
+        <div>
+          <dt>cpuCores</dt>
+          <dd>Number of CPU cores to allocate.</dd>
+          <span class="param-default"><b>Default:</b> auto-detected.</span>
+          <code class="param-example">?cpuCores=4</code>
+        </div>
+        <div>
+          <dt>gpuCores</dt>
+          <dd>Number of GPU cores to allocate.</dd>
+          <span class="param-default"><b>Default:</b> auto-detected.</span>
+          <code class="param-example">?gpuCores=1</code>
+        </div>
+        <div>
+          <dt>minCPU / minGPU / minIn / minOut</dt>
+          <dd>Minimum wage (⊇) required to accept CPU work, GPU work, per input KB, and per output KB.</dd>
+          <span class="param-default"><b>Default:</b> 0 (accept any wage).</span>
+          <code class="param-example">?minCPU=0.001&amp;minGPU=0.001&amp;minIn=0.001&amp;minOut=0.001</code>
+        </div>
+        <div>
+          <dt>allowOrigins</dt>
+          <dd>Which job origins to accept work from — any, or a comma-separated list of URLs.</dd>
+          <span class="param-default"><b>Default:</b> any.</span>
+          <code class="param-example">?allowOrigins=https://jobs.example.com,https://other.com</code>
+        </div>
+        <div>
+          <dt>leavePublicGroup</dt>
+          <dd>Whether to leave the public compute group when joining a private one.</dd>
+          <span class="param-default"><b>Default:</b> true.</span>
+          <code class="param-example">?leavePublicGroup=false</code>
+        </div>
+      </dl>
+    </div>
+  </aside>
+
+  <script src="https://scheduler.distributed.computer/dcp-client/dcp-client.js"></script>
+  <script>
+    let worker = null;
+    let totalCredits = 0;
+
+    function updateCreditDisplay() {
+      const el = document.getElementById('depositTotal');
+      if (el) el.textContent = totalCredits.toFixed(3);
+    }
+
+    /* GET PARAMETERS */
+    function getWorkerParams() {
+      const p = new URLSearchParams(window.location.search);
+
+      const registrationKey = p.get('registrationKey'); // null if not provided — no default; see registerWorker()
+      // ?registrationKey=0xABC...
+
+      const paymentAddress = p.get('paymentAddress')
+        ?? '0xa8450ec85759273f509f10cf146259a83ca2368e';
+      // ?paymentAddress=0xBEEF...
+
+      const jobIds = p.get('jobIds')?.split(',').map(s => s.trim()).filter(Boolean);
+      // undefined when the param is absent
+      // ?jobIds=jeHgigTXPURl6xMgUz9oNw        -> ['jeHgigTXPURl6xMgUz9oNw']
+      // ?jobIds=jeHgigTXPURl6xMgUz9oNw,foo    -> ['jeHgigTXPURl6xMgUz9oNw', 'foo']
+
+      const maxSandboxes = p.has('maxSandboxes')
+        ? parseInt(p.get('maxSandboxes'), 10)
+        : 2;
+      // ?maxSandboxes=4
+
+      const cpuUtilization = p.has('cpuUtilization')
+        ? parseFloat(p.get('cpuUtilization'))
+        : 1;
+      // ?cpuUtilization=0.5
+
+      const gpuUtilization = p.has('gpuUtilization')
+        ? parseFloat(p.get('gpuUtilization'))
+        : 1;
+      // ?gpuUtilization=0
+
+      const cores = {};
+      if (p.has('cpuCores')) cores.cpu = parseInt(p.get('cpuCores'), 10);
+      // ?cpuCores=4
+      if (p.has('gpuCores')) cores.gpu = parseInt(p.get('gpuCores'), 10);
+      // ?gpuCores=1
+
+      const minimumWage = {
+        CPU: p.has('minCPU') ? parseFloat(p.get('minCPU')) : 0,
+        // ?minCPU=0.001
+        GPU: p.has('minGPU') ? parseFloat(p.get('minGPU')) : 0,
+        // ?minGPU=0.001
+        in:  p.has('minIn')  ? parseFloat(p.get('minIn'))  : 0,
+        // ?minIn=0.001
+        out: p.has('minOut') ? parseFloat(p.get('minOut')) : 0,
+        // ?minOut=0.001
+      };
+
+      let allowOrigins = { any: [null] };
+      if (p.has('allowOrigins')) {
+        const raw = p.get('allowOrigins');
+        allowOrigins = (raw === 'any')
+          ? { any: [null] }
+          : { any: raw.split(',').map(s => s.trim()) };
+      }
+      // ?allowOrigins=any
+      // ?allowOrigins=https://jobs.example.com,https://other.com
+
+      let computeGroups = [{ joinKey: 'demo', joinSecret: 'dcp' }];
+      if (p.has('computeGroups')) {
+        const raw = p.get('computeGroups');
+        if (raw.startsWith('[')) {
+          try { computeGroups = JSON.parse(raw); } catch {}
+        } else if (raw.includes(',')) {
+          const [joinKey, joinSecret] = raw.split(',');
+          computeGroups = [{ joinKey, joinSecret }];
+        }
+      }
+      // ?computeGroups=mykey,mysecret
+      // ?computeGroups=[{"joinKey":"a","joinSecret":"x"},{"joinKey":"b","joinSecret":"y"}]
+
+      let leavePublicGroup = true;
+      if (p.has('leavePublicGroup')) {
+        leavePublicGroup = p.get('leavePublicGroup') !== 'false';
+      }
+      // ?leavePublicGroup=false   (to override the default)
+
+      return { registrationKey, paymentAddress, jobIds, maxSandboxes, cpuUtilization, gpuUtilization,
+        cores, minimumWage, allowOrigins, computeGroups, leavePublicGroup };
+    }
+
+    const wp = getWorkerParams();
+    document.getElementById('depositAddress').textContent = wp.paymentAddress;
+
+    // IDENTITY
+    //
+    // The worker's own device identity (distinct from paymentAddress, where earnings go, and from
+    // registrationKey, the key that claims ownership of the worker). Generated once per browser with
+    // dcp.wallet.Keystore(null, '') — a random keypair, no passphrase prompt — and its private key is
+    // persisted in localStorage so the same identity is reused on every reload.
+    const IDENTITY_STORAGE_KEY = 'workerIdentityKey';
+
+    async function getOrCreateIdentityKey() {
+      let pk = localStorage.getItem(IDENTITY_STORAGE_KEY);
+      if (!pk) {
+        const ks = await new dcp.wallet.Keystore(null, '');
+        pk = (await ks.getPrivateKey()).toString();
+        localStorage.setItem(IDENTITY_STORAGE_KEY, pk);
+      }
+      return pk;
+    }
+
+    async function ensureIdentity() {
+      if (!dcp.identity.check()) {
+        await dcp.identity.set(await getOrCreateIdentityKey());
+      }
+    }
+
+    // REGISTER WORKER
+    //
+    // No default registration key — only registers when ?registrationKey= is supplied, and only
+    // when it's not already the key we last registered under (localStorage['workerRegisteredKey']).
+    //
+    // Registering always gets a fresh worker id first: the scheduler ties a worker id to its owner,
+    // so reusing one (even one that only ever ran unregistered) under a different/new registration
+    // is refused. DistributiveWorker.resetLocalStorage() drops the persisted id so the next
+    // DistributiveWorker generates a new one. Switching to a genuinely different registration key
+    // (not the first-ever registration) also gets a fresh device identity, so the new registration
+    // isn't tied to material a previous owner's registration already used.
+    const registrationDone = (async function registerWorker() {
+      const urlKey    = wp.registrationKey;
+      const storedKey = localStorage.getItem('workerRegisteredKey');
+      if (!urlKey || urlKey === storedKey) return;
+
+      localStorage.removeItem('workerRegistered');
+      localStorage.removeItem('workerRegisteredKey');
+      dcp.worker.DistributiveWorker.resetLocalStorage();
+      if (storedKey) localStorage.removeItem(IDENTITY_STORAGE_KEY);
+
+      await ensureIdentity();
+
+      const ua = navigator.userAgent;
+
+      const os = /iPhone|iPad/.test(ua) && /Mobile/.test(ua) ? 'iOS' :  // require Mobile to distinguish iPad/iPhone from Mac
+                /Android/.test(ua)                           ? 'Android' :
+                /Win/.test(ua)                               ? 'Windows' :
+                /Macintosh|Mac OS X/.test(ua)                ? 'Mac' : 'Linux';
+
+      const browser = /Edg\//.test(ua)      ? 'Edge' :    // Edg/ to avoid matching "Edge" in older strings
+                      /OPR|Opera/.test(ua)  ? 'Opera' :
+                      /Chrome\//.test(ua)   ? 'Chrome' :  // Chrome/ before Safari, since Chrome UA includes "Safari"
+                      /Firefox/.test(ua)    ? 'Firefox' : 'Safari';
+
+      const isMobile = /iPhone|iPad|Android/.test(ua) && /Mobile/.test(ua);
+      const label = `${os} | ${browser}${isMobile ? ' | mobile' : ''}`;
+
+      if (!dcp.wallet.isPrivateKey(urlKey)) return console.error('Invalid registration key');
+
+      const reg = await new dcp.worker.DistributiveWorker({}).register(urlKey, label);
+
+      if (reg.status === 'registered') {
+        localStorage.setItem('workerRegistered', 'true');
+        localStorage.setItem('workerRegisteredKey', urlKey);
+        window.location.reload();
+      } else {
+        console.error(`Registration failure: ${reg.status}`);
+      }
+    })();
+
+    async function toggleWorker() {
+      const btn             = document.getElementById('btn');
+      const logo            = document.getElementById('logo');
+      const progressSection = document.getElementById('progressSection');
+      const depositInfo     = document.getElementById('depositInfo');
+
+      // ── Progress bar helpers ──
+      // Track job name per sandbox
+      const sandboxJobName = {};
+
+      function getOrCreateBar(id, jobName) {
+        let row = document.getElementById(`bar-${id}`);
+        if (!row) {
+          row = document.createElement('div');
+          row.className = 'progress-row';
+          row.id = `bar-${id}`;
+          row.innerHTML = `
+            <div class="progress-header">
+              <span class="progress-job-name" id="jobname-${id}">—</span>
+              <div class="progress-meta">
+                <span class="progress-sandbox">SBX ${id}</span>
+                <span class="progress-pct" id="pct-${id}">0.0%</span>
+              </div>
+            </div>
+            <div class="progress-track">
+              <div class="progress-fill" id="fill-${id}"></div>
+            </div>`;
+          progressSection.appendChild(row);
+          progressSection.classList.add('visible');
+          // Animate row in after a microtask so transition fires
+          requestAnimationFrame(() => requestAnimationFrame(() => row.classList.add('visible')));
+        }
+        if (jobName) {
+          const nameEl = document.getElementById(`jobname-${id}`);
+          if (nameEl) nameEl.textContent = jobName;
+        }
+      }
+
+      function updateBar(id, pct) {
+        const fill  = document.getElementById(`fill-${id}`);
+        const label = document.getElementById(`pct-${id}`);
+        if (fill)  fill.style.width  = `${pct}%`;
+        if (label) label.textContent = `${pct.toFixed(1)}%`;
+      }
+
+      function clearBars() {
+        progressSection.classList.remove('visible');
+        // Wait for section to collapse before clearing contents
+        setTimeout(() => { progressSection.innerHTML = ''; }, 500);
+      }
+
+      const setRunning = (on) => {
+        logo.classList.toggle('running', on);
+        depositInfo.classList.toggle('visible', on);
+      };
+
+      const setFullyStopped = () => {
+        setRunning(false);
+        clearBars();
+      };
+
+      if (!worker) {
+        // IDENTIFY WORKER
+        // Wait for any in-flight registration first — it also calls dcp.identity.set(), and
+        // dcp.identity.set() throws if called twice concurrently.
+        await registrationDone;
+        await ensureIdentity();
+
+        // CONFIGURE WORKER
+        const workerConfig = {
+          paymentAddress:   new dcp.wallet.Address(wp.paymentAddress),
+          ...(Object.keys(wp.cores).length && { cores: wp.cores }),
+          ...(wp.jobIds && { jobIds: wp.jobIds }),
+          utilization:      { cpu: wp.cpuUtilization, gpu: wp.gpuUtilization },
+          maxSandboxes:     wp.maxSandboxes,
+          minimumWage:      wp.minimumWage,
+          allowOrigins:     wp.allowOrigins,
+          computeGroups:    wp.computeGroups,
+          leavePublicGroup: wp.leavePublicGroup,
+        };
+
+        // INSTANTIATE WORKER
+        worker = new dcp.worker.DistributiveWorker(workerConfig);
+
+        // Worker events
+        worker.on("connect",    () => { setRunning(true);      });
+        worker.on("disconnect", () => { setRunning(false);     });
+        worker.on("stop",       () => { setRunning(false);     });
+        worker.on("end",        () => { setFullyStopped();     });
+
+        //
+        // WORKER EVENTS
+        //
+
+        worker.on("fetch", ev => {
+          const jobIds = Object.keys(ev.jobs);
+          if (jobIds.length === 0) {
+            console.log("[worker.fetch] No work; retrying in 7 seconds...");
+            return;
+          }
+          const sizeKB = (ev.fetchSize / 1024).toFixed(2);
+          console.log(`[worker.fetch] fetchSize: ${sizeKB} KB`);
+          for (const jobId of jobIds) {
+            const job = ev.jobs[jobId];
+            const sliceCount = ev.slices[jobId] || 0;
+            console.log(
+              `  jobId: ${jobId},`,
+              `name: ${job.name},`,
+              `description: ${job.description},`,
+              `link: ${job.link},`,
+              `slicesFetched: ${sliceCount}`
+            );
+          }
+        });
+
+        worker.on("result", (urlOrError, size) => {
+          if (urlOrError instanceof Error) {
+            console.log(`[worker.result] error ${urlOrError.message}`);
+          } else {
+            console.log(`[worker.result] sent ${(size / 1024).toFixed(2)} KB to ${urlOrError || "scheduler"}`);
+          }
+        });
+
+        worker.on("payment", (payment, paymentAccount, jobAddress, slice) => {
+          console.log(
+            `[worker.payment]`,
+            `payment: ${payment}⊇,`,
+            `depositAccount: ${paymentAccount},`,
+            `jobId: ${jobAddress},`,
+            `slice: ${slice}`
+          );
+        });
+
+        worker.on("connect", url => {
+          console.log(`[worker.connect] connected to ${url}`);
+          setRunning(true);
+        });
+
+        worker.on("disconnect", url => {
+          console.log(`[worker.disconnect] disconnected from ${url}`);
+          setRunning(false);
+        });
+
+        worker.on("stop", abort => {
+          console.log("[worker.stop] worker stopping...");
+          setRunning(false);
+        });
+
+        worker.on("end", () => {
+          console.log("[worker.end] worker fully stopped");
+          setFullyStopped();
+        });
+
+        worker.on("error", err => {
+          console.error(`[worker.error]`, err);
+        });
+
+        worker.on("warning", warn => {
+          console.warn(`[worker.warning]`, warn);
+        });
+
+        worker.on("sandbox", sandbox => {
+          console.log(`[worker.sandbox_${sandbox.id}] new sandbox created: ${sandbox.id}`);
+        });
+
+        //
+        // SANDBOX EVENTS
+        //
+
+        worker.on("sandbox", sandbox => {
+
+          sandbox.on("ready", () => {
+            console.log(`[sandbox_${sandbox.id}.ready] sandbox is ready`);
+            getOrCreateBar(sandbox.id, sandboxJobName[sandbox.id]);
+          });
+
+          sandbox.on("job", jobInfo => {
+            console.log(
+              `[sandbox_${sandbox.id}.job]`,
+              `jobId: ${jobInfo.id},`,
+              `name: ${jobInfo.name}`
+            );
+            // Store job name and update bar label immediately
+            sandboxJobName[sandbox.id] = jobInfo.name || jobInfo.id;
+            getOrCreateBar(sandbox.id, sandboxJobName[sandbox.id]);
+          });
+
+          sandbox.on("slice", sliceNumber => {
+            console.log(`[sandbox_${sandbox.id}.slice] slice started: ${sliceNumber}`);
+            getOrCreateBar(sandbox.id, sandboxJobName[sandbox.id]);
+            updateBar(sandbox.id, 0);
+          });
+
+          sandbox.on("progress", value => {
+            const pct = typeof value === "number" ? value : 0;
+            console.log(`[sandbox_${sandbox.id}.progress] ${pct.toFixed(1)}%`);
+            getOrCreateBar(sandbox.id, sandboxJobName[sandbox.id]);
+            updateBar(sandbox.id, pct);
+          });
+
+          sandbox.on("metrics", (slice, m) => {
+            console.log(
+              `[sandbox_${sandbox.id}.metrics]`,
+              `slice: ${slice},`,
+              `elapsed: ${m.elapsed.toFixed(3)} sec,`,
+              `CPU: ${m.CPU.toFixed(3)} sec,`,
+              `GPU: ${m.GPU.toFixed(3)} sec,`,
+              `in: ${(m.in / 1024).toFixed(3)} KB,`,
+              `out: ${(m.out / 1024).toFixed(3)} KB`
+            );
+          });
+
+          sandbox.on("sliceEnd", sliceNumber => {
+            console.log(`[sandbox_${sandbox.id}.sliceEnd] slice finished: ${sliceNumber}`);
+            updateBar(sandbox.id, 100);
+          });
+
+          sandbox.on("payment", payment => {
+            console.log(`[sandbox_${sandbox.id}.payment] ${payment} ⊇`);
+            totalCredits += Number(payment) || 0;
+            updateCreditDisplay();
+          });
+
+          sandbox.on("end", () => {
+            console.log(`[sandbox_${sandbox.id}.end] sandbox fully stopped`);
+            delete sandboxJobName[sandbox.id];
+            const row = document.getElementById(`bar-${sandbox.id}`);
+            if (row) {
+              row.classList.remove('visible');
+              setTimeout(() => {
+                row.remove();
+                if (!progressSection.querySelectorAll('.progress-row').length) {
+                  progressSection.classList.remove('visible');
+                }
+              }, 400);
+            }
+          });
+
+        });
+
+        // UPDATE BUTTON & START
+        btn.querySelector('span').textContent = 'Stop';
+        setRunning(true);
+        await worker.start();
+
+      } else {
+        // STOP WORKER
+        btn.disabled = true;
+        btn.querySelector('span').textContent = 'Stopping...';
+        await worker.stop();
+        worker = null;
+        setRunning(false);
+        btn.querySelector('span').textContent = 'Start';
+        btn.disabled = false;
+      }
+    }
+
+    window.addEventListener('load', () => {
+      document.getElementById('logo').classList.add('transitions-ready');
+    });
+
+    // PARAMS DRAWER
+    (function initParamsDrawer() {
+      const drawer = document.getElementById('paramsDrawer');
+      const tab    = document.getElementById('drawerTab');
+      const close  = document.getElementById('drawerClose');
+
+      function setOpen(open) {
+        drawer.classList.toggle('open', open);
+        tab.setAttribute('aria-expanded', String(open));
+      }
+
+      tab.addEventListener('click', () => setOpen(!drawer.classList.contains('open')));
+      close.addEventListener('click', () => setOpen(false));
+      document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') setOpen(false);
+      });
+    })();
+  </script>
+</body>
+</html>
